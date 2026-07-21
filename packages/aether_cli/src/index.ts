@@ -594,7 +594,13 @@ function startDevServer() {
 
     const route = resolveRoute(url);
     if (route.type === "app") {
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.writeHead(200, {
+        "Content-Type": "text/html; charset=utf-8",
+        "Content-Security-Policy":
+          "default-src 'self'; script-src 'self' 'unsafe-inline' https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; font-src https://fonts.gstatic.com; connect-src 'self' ws: wss:",
+        "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "strict-origin-when-cross-origin",
+      });
       res.end(appHtml(serverMemory));
       return;
     }
@@ -660,10 +666,10 @@ function startDevServer() {
   }
 
   server.listen(PORT, () => {
-    console.log(`Aether http://localhost:${PORT}  (landing / · app /demo)`);
+    console.log(`Aether http://localhost:${PORT}  (landing / · tour /demo · api /api.html)`);
     console.log(`  entry=${path.relative(PROJECT_ROOT, ENTRY)}`);
     console.log(`  outDir=${OUT_DIR}`);
-    console.log(`  DSM: WS /aether-dsm · /api/dsm · HTTP /api/delta`);
+    console.log(`  DSM: WS /aether-dsm · /api/dsm · HTTP /api/delta · SSR stream /api/ssr`);
     if (process.env.AETHER_TLS_CERT && process.env.AETHER_TLS_KEY) {
       void startHttp3WebTransport();
     }

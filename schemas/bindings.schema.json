@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://aether.dev/schemas/bindings.schema.json",
+  "title": "AetherBindings",
+  "type": "object",
+  "properties": {
+    "derived": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["target", "from", "op"],
+        "properties": {
+          "target": { "type": "string" },
+          "from": { "type": "string" },
+          "op": { "enum": ["mul", "add", "copy", "Mul", "Add", "Copy"] },
+          "arg": { "type": "integer" }
+        }
+      }
+    },
+    "handlers": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["op"],
+        "properties": {
+          "op": { "enum": ["inc", "dec", "add", "set", "perform"] },
+          "slot": { "type": "string" },
+          "delta": { "type": "integer" },
+          "server": { "type": "boolean" },
+          "effect": { "type": "string" },
+          "into": { "type": "string" }
+        }
+      }
+    },
+    "effects": {
+      "type": "object",
+      "additionalProperties": { "type": "integer" }
+    }
+  }
+}
