@@ -11,7 +11,7 @@
 - [x] Syntax matrix (`npm run smoke:syntax`)  
 - [x] `ControlFlow::Loop` + per-row `$item` + SSR/hydrate  
 - [x] `ControlFlow::Condition` (`&&` / `v-if` / `{#if}` / `*ngIf`)  
-- [x] `aether/store` — Pinia-shaped API → Wasm slots  
+- [x] `aether-std/store` — Pinia-shaped API → Wasm slots  
 - [x] ABI freeze + CSP (`wasm-unsafe-eval`)  
 - [x] `publish:check` + Playwright CI + tag publish  
 
@@ -22,5 +22,5 @@
 ## Ship to testers / registry
 
 1. Testers: [`TRY.md`](./TRY.md) — `git clone` → `npm run setup` → `npm run start`  
-2. npm: tag `v1.0.0` → Publish + Release workflows (`NPM_TOKEN` configured)  
-3. After release: `npm create aether@latest` · `npm run ensure:compiler` pulls binaries from GitHub Releases  
+2. npm: tag `v*` → Publish + Release workflows (`NPM_TOKEN` granular + **Bypass 2FA**, or trusted publisher OIDC on each package)  
+3. After release: `npm create aether@latest` · `npm i aether-std` · `npm run ensure:compiler` pulls binaries from GitHub Releases  

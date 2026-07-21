@@ -22,13 +22,17 @@ jobs:
       - run: npm ci
       - run: npm run build -w aether_runtime
       - run: npm run publish:check
+      # Prefer OIDC trusted publishing when configured on npmjs.com
+      # (GitHub user 1Anton10 / repo aether-framework / workflow publish.yml).
+      # Fallback: secrets.NPM_TOKEN must be a granular token with
+      # packages:write + Bypass 2FA (required when account 2FA is on).
       - name: Publish packages
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -e
-          for pkg in aether aether_runtime aether_ssr aether_cli create-aether vite-plugin-aether aether-adapter aether-compat-react aether-compat-vue aether-compat-svelte aether-compat-solid aether-compat-qwik aether-compat-lit aether-compat-angular; do
+          for pkg in aether-std aether_runtime aether_ssr aether_cli create-aether vite-plugin-aether aether-adapter aether-compat-react aether-compat-vue aether-compat-svelte aether-compat-solid aether-compat-qwik aether-compat-lit aether-compat-angular; do
             echo "Publishing $pkg…"
             npm publish --workspace "$pkg" --access public --provenance || npm publish --workspace "$pkg" --access public
           done

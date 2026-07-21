@@ -61,7 +61,8 @@ Packages publish on tag `v1.0.0` (GitHub Actions + `NPM_TOKEN`).
 
 ```bash
 npm create aether@latest my-app
-# or: npm i aether aether_runtime create-aether
+# or: npm i aether-std aether_runtime create-aether
+# (bare `aether` on npm is an unrelated package)
 ```
 
 Testers can always use **git clone + `npm run setup`** — fully supported.
@@ -79,6 +80,6 @@ Checks Node, compiler binary, runtime build, ports.
 - Write UI in JSX / Vue / Svelte / Angular / Solid / Qwik / Lit  
 - Bindings + state slots + effects  
 - SSR hydrate, binary `/api/delta`, Loop + Condition  
-- `aether/store` / Pinia-shaped API  
+- `aether-std/store` / Pinia-shaped API  
 
 What is **out of scope** for v1.0 speed contract: embedding Next/Nuxt servers as-is. Use `npm run migrate` then loaders/effects.

@@ -1,7 +1,7 @@
 {
-  "name": "aether",
+  "name": "aether-std",
   "version": "1.0.0",
-  "description": "Aether — Frontend Runtime Standard (Wasm UI · IR · DSM · store)",
+  "description": "Aether Frontend Runtime Standard — meta package (store / ssr / router)",
   "type": "module",
   "license": "MIT",
   "exports": {

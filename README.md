@@ -15,7 +15,7 @@ Aether is the **runtime standard** underneath any syntax:
 
 | | Legacy SPA stack | Aether 1.0 |
 |--|------------------|------------|
-| State | JS + Pinia/Redux/… | **Wasm slots** (+ `aether/store` Pinia-shaped API) |
+| State | JS + Pinia/Redux/… | **Wasm slots** (+ `aether-std/store` Pinia-shaped API) |
 | Updates | Full / broad reconcile | **Dirty DAG** |
 | Boot | JS tree hydrate | **Binary snapshot** + nid |
 | Sync | JSON | **Binary DSM** (12 B / i32) |
@@ -68,12 +68,13 @@ After the `v1.0.0` release is on npm:
 npm create aether@latest my-app
 ```
 
-Packages: `aether`, `aether_runtime`, `aether_ssr`, `aether_cli`, `create-aether`, `vite-plugin-aether`, `aether-compat-*`  
+Packages: `aether-std`, `aether_runtime`, `aether_ssr`, `aether_cli`, `create-aether`, `vite-plugin-aether`, `aether-compat-*`  
 Repo: https://github.com/1Anton10/aether-framework
 
 ## Packages (1.0)
 
-`aether` (`/store`, `/ssr`, `/router`) · `aether_runtime` · `aether_ssr` · `aether_cli` · `create-aether` · `vite-plugin-aether` · `aether-compat-*`
+`aether-std` (`/store`, `/ssr`, `/router`) · `aether_runtime` · `aether_ssr` · `aether_cli` · `create-aether` · `vite-plugin-aether` · `aether-compat-*`  
+(Note: bare `aether` on npm is an unrelated package — use **`aether-std`**.)
 
 ## License
 
