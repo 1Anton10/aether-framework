@@ -14,9 +14,10 @@
     <div class="wrap nav-inner">
       <a class="logo" href="/">Aether</a>
       <div class="nav-links">
+        <a href="#compare">Compare</a>
         <a href="/guide.html">Guide</a>
         <a href="/api.html">API</a>
-        <a href="/demo">Playground</a>
+        <a href="/demo">Live app</a>
       </div>
     </div>
   </nav>
@@ -24,16 +25,16 @@
   <header class="hero">
     <div class="wrap hero-grid">
       <div class="hero-copy">
-        <p class="eyebrow">Frontend framework</p>
+        <p class="eyebrow">v0.1 · Wasm UI standard</p>
         <h1>Aether</h1>
-        <p class="tagline">Compile UI to Wasm. Resume from memory. Patch the DOM. Sync over binary DSM.</p>
+        <p class="tagline">Не VDOM. Память. Дельта. Синхрон.</p>
         <p class="lead">
-          Один пайплайн для JSX, Vue, Svelte, Angular, Solid, Qwik, Lit и HTML.
-          Состояние живёт в Wasm-памяти — без Virtual DOM и без JSON-RPC.
+          UI компилируется в Wasm. Состояние — в linear/GC памяти.
+          Обновления — binary DSM. SSR без гидратационного ада React.
         </p>
         <div class="cta">
-          <a class="btn primary" href="#get-started">Get Started</a>
-          <a class="btn" href="/demo">Open Playground</a>
+          <a class="btn primary" href="#compare">Смотреть сравнение</a>
+          <a class="btn" href="/demo">Открыть playground</a>
         </div>
       </div>
       <aside class="hero-panel" aria-label="Install">
@@ -41,100 +42,139 @@
           <span></span><span></span><span></span>
           <em>terminal</em>
         </div>
-        <pre class="panel-code"><code><span class="cmt"># создать приложение</span>
-npm create aether@latest my-app
-cd my-app
-npm run dev
+        <pre class="panel-code"><code><span class="cmt"># новый стандарт старта</span>
+npm run create -- my-app
+cd my-app && npm run dev
 
-<span class="cmt"># или из monorepo</span>
-node path/to/aether_cli create my-app</code></pre>
+<span class="cmt"># pages · loaders · SSR · Vite plugin</span>
+src/pages/index.tsx
+src/pages/about.loader.ts</code></pre>
       </aside>
     </div>
   </header>
 
-  <section id="get-started" class="section">
+  <section id="compare" class="section compare-section">
     <div class="wrap">
-      <h2>Get Started</h2>
-      <p class="sub">Как у Vite / Nuxt: создал проект → <code>npm run dev</code> → открыл браузер.</p>
-      <ol class="steps">
-        <li>
-          <strong>Создайте проект</strong>
-          <pre><code>node &lt;aether-framework&gt;/packages/aether_cli/src/index.ts create my-app
-cd my-app</code></pre>
-        </li>
-        <li>
-          <strong>Соберите компилятор (один раз в framework)</strong>
-          <pre><code>cd &lt;aether-framework&gt;
-cargo build -p aether_compiler
-npm run build -w aether_runtime</code></pre>
-        </li>
-        <li>
-          <strong>Запустите dev-сервер</strong>
-          <pre><code>npm run dev
-# → http://localhost:5173</code></pre>
-        </li>
-      </ol>
+      <h2>Старый мир vs Aether</h2>
+      <p class="sub">
+        Живой бенч на этой странице: слева — модель React/Nuxt (полный reconcile + JSON),
+        справа — модель Aether (точечный patch + binary delta).
+      </p>
+
+      <div class="bench-controls">
+        <label>Слотов / узлов: <strong id="bench-n">500</strong></label>
+        <input id="bench-range" type="range" min="50" max="2000" step="50" value="500" />
+        <button type="button" class="btn primary" id="bench-run">Запустить 60 кадров</button>
+      </div>
+
+      <div class="compare-grid">
+        <article class="compare-card old">
+          <header>
+            <h3>Classic SPA</h3>
+            <p>React · Vue · Nuxt-style VDOM</p>
+          </header>
+          <ul class="metric-list">
+            <li><span>Работа за кадр</span><strong id="old-work">—</strong></li>
+            <li><span>Байт на проводе</span><strong id="old-bytes">—</strong></li>
+            <li><span>Полных reconcile</span><strong id="old-reconcile">—</strong></li>
+            <li><span>Hydration cost</span><strong id="old-hydrate">высокий</strong></li>
+          </ul>
+          <div class="bar-track"><div class="bar old-bar" id="old-bar"></div></div>
+          <p class="card-foot">JSON state · virtual tree · re-render subtree</p>
+        </article>
+
+        <article class="compare-card new">
+          <header>
+            <h3>Aether</h3>
+            <p>Wasm memory · dirty DAG · DSM</p>
+          </header>
+          <ul class="metric-list">
+            <li><span>Работа за кадр</span><strong id="new-work">—</strong></li>
+            <li><span>Байт на проводе</span><strong id="new-bytes">—</strong></li>
+            <li><span>DOM patches</span><strong id="new-patches">—</strong></li>
+            <li><span>Hydration cost</span><strong id="new-hydrate">snapshot</strong></li>
+          </ul>
+          <div class="bar-track"><div class="bar new-bar" id="new-bar"></div></div>
+          <p class="card-foot">binary delta 12B/slot · mount once · SSR hydrate</p>
+        </article>
+      </div>
+
+      <p class="bench-verdict" id="bench-verdict">Нажми «Запустить» — увидишь разницу в работе и байтах.</p>
+
+      <div class="compare-table-wrap">
+        <table class="compare-table">
+          <thead>
+            <tr>
+              <th></th>
+              <th>Next / Nuxt / React</th>
+              <th>Aether</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Состояние</td>
+              <td>JS heap + VDOM</td>
+              <td>Wasm linear + GC heap</td>
+            </tr>
+            <tr>
+              <td>Старт</td>
+              <td>Hydrate JS tree</td>
+              <td>Binary snapshot resume</td>
+            </tr>
+            <tr>
+              <td>Sync</td>
+              <td>JSON / RSC payload</td>
+              <td>Binary DSM / WebTransport</td>
+            </tr>
+            <tr>
+              <td>Синтаксис</td>
+              <td>Один экосистемный lock-in</td>
+              <td>JSX Vue Svelte Angular Solid Qwik Lit → один IR</td>
+            </tr>
+            <tr>
+              <td>SSR</td>
+              <td>Render + hydrate mismatch risk</td>
+              <td>IR → HTML + nid hydrate</td>
+            </tr>
+            <tr>
+              <td>Pages</td>
+              <td>file routes + loaders</td>
+              <td>src/pages/* + *.loader.ts</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </section>
 
   <section class="section alt">
     <div class="wrap">
-      <h2>Что внутри</h2>
-      <p class="sub">Полный цикл: compile → resume → patch → sync.</p>
+      <h2>Что умеет прямо сейчас</h2>
       <div class="grid">
-        <article class="card">
-          <h3>Wasm memory</h3>
-          <p>Linear + WasmGC heap. Snapshot в HTML, cold start без гидратации.</p>
-        </article>
-        <article class="card">
-          <h3>Incremental DAG</h3>
-          <p>Dirty-queue и derived-слоты. Патчится только то, что изменилось.</p>
-        </article>
-        <article class="card">
-          <h3>Binary DSM</h3>
-          <p>WebTransport / WebSocket / HTTP. Один бинарный кодек дельт.</p>
-        </article>
-        <article class="card">
-          <h3>Effects</h3>
-          <p>Algebraic perform → server handler → resume в слот.</p>
-        </article>
-        <article class="card">
-          <h3>Any frontend</h3>
-          <p>JSX · Vue · Svelte · Angular · Solid · Qwik · Lit · HTML → один IR.</p>
-        </article>
-        <article class="card">
-          <h3>Migrate</h3>
-          <p><code>aether migrate</code> подхватывает Vite, Next, Nuxt, Angular и ставит aliases.</p>
-        </article>
+        <article class="card"><h3>SSR + hydrate</h3><p>IR → HTML на сервере, клиент цепляет <code>data-aether-nid</code>.</p></article>
+        <article class="card"><h3>File pages</h3><p><code>src/pages</code> → маршруты, loaders рядом с страницей.</p></article>
+        <article class="card"><h3>Vite plugin</h3><p><code>vite-plugin-aether</code> — virtual <code>aether:program</code>.</p></article>
+        <article class="card"><h3>create-aether</h3><p>Scaffold как create-vite / nuxi.</p></article>
+        <article class="card"><h3>DSM</h3><p>WebTransport → WS → HTTP, один кодек.</p></article>
+        <article class="card"><h3>Migrate</h3><p>Next / Nuxt / Vite / Angular → aether.config + pages.</p></article>
       </div>
-    </div>
-  </section>
-
-  <section class="section">
-    <div class="wrap">
-      <h2>Структура проекта</h2>
-      <p class="sub">Минимальный скелет — как create-vue / create-nuxt.</p>
-      <pre class="tree"><code>my-app/
-├── aether.config.json
-├── aether.bindings.json
-├── package.json
-├── src/
-│   ├── App.tsx
-│   └── state.ts
-└── public/
-    └── index.html   <span class="cmt"># опциональный лендинг</span></code></pre>
+      <div class="cta" style="margin-top:1.5rem">
+        <a class="btn primary" href="/demo">Playground →</a>
+        <a class="btn" href="/guide.html">Guide</a>
+      </div>
     </div>
   </section>
 
   <footer class="footer">
     <div class="wrap footer-inner">
-      <span>Aether Framework</span>
+      <span>Aether · MIT · v0.1.0</span>
       <div class="nav-links">
         <a href="/guide.html">Guide</a>
         <a href="/api.html">API</a>
-        <a href="/demo">Playground</a>
+        <a href="/demo">App</a>
       </div>
     </div>
   </footer>
+  <script src="/bench.js" defer></script>
 </body>
 </html>

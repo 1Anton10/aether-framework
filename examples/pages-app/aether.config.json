@@ -1,0 +1,18 @@
+{
+  "root": ".",
+  "entry": "src/pages/index.tsx",
+  "state": "src/state.ts",
+  "bindings": "aether.bindings.json",
+  "pagesDir": "src/pages",
+  "ssr": true,
+  "outDir": "dist",
+  "watch": ["src"],
+  "wasmgc": true,
+  "server": { "port": 5180 },
+  "site": { "landing": "public/index.html", "publicDir": "public" },
+  "routes": {
+    "/": { "type": "app" },
+    "/about": { "type": "app" },
+    "/docs": { "type": "static", "file": "public/index.html" }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "derived": [],
+  "handlers": {
+    "inc_count": { "op": "inc", "slot": "count" }
+  }
+}

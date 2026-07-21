@@ -546,9 +546,41 @@ export class AetherRuntime {
     if (!this.program) return;
     const rootEl = document.getElementById("root");
     if (!rootEl) return;
+
+    // Hydrate SSR markup when present (no flash / no full rebuild)
+    if (rootEl.getAttribute("data-aether-ssr") === "1" && rootEl.childNodes.length) {
+      this.hydrate(rootEl);
+      return;
+    }
+
     rootEl.replaceChildren();
     const built = this.buildNode(nid(this.program.root));
     if (built) rootEl.appendChild(built);
+  }
+
+  /** Adopt server-rendered nodes marked with data-aether-nid. */
+  private hydrate(rootEl: HTMLElement) {
+    const marked = rootEl.querySelectorAll("[data-aether-nid]");
+    marked.forEach((el) => {
+      const id = Number(el.getAttribute("data-aether-nid"));
+      if (!Number.isFinite(id)) return;
+      // Text nodes were wrapped in <span data-aether-nid> — use text child if single
+      if (
+        el.tagName === "SPAN" &&
+        el.childNodes.length === 1 &&
+        el.firstChild?.nodeType === Node.TEXT_NODE
+      ) {
+        this.domHandles.set(id, el.firstChild);
+      } else {
+        this.domHandles.set(id, el);
+      }
+    });
+    // Fallback: if root program node missing, full mount
+    if (!this.domHandles.has(nid(this.program!.root))) {
+      rootEl.replaceChildren();
+      const built = this.buildNode(nid(this.program!.root));
+      if (built) rootEl.appendChild(built);
+    }
   }
 
   private buildNode(id: number): Node | null {

@@ -53,32 +53,21 @@ JSX / Vue / Svelte / Angular / Solid / Qwik / Lit / HTML
 | Command | |
 |---------|--|
 | `create <name>` | scaffold (`create-aether`) |
-| `dev` / `start` | HMR + DSM |
+| `dev` / `start` | HMR + SSR + DSM |
 | `build` / `deploy` | production |
-| `migrate` | bootstrap from Vite / Next / Nuxt / Angular / Solid |
+| `migrate` | Next/Nuxt/Vite/… → config + `src/pages` |
 
-## Migrate
+## Pages · Loaders · SSR
 
-```bash
-cd existing-app
-node /path/to/aether-framework/packages/aether_cli/src/index.ts migrate
+```
+src/pages/index.tsx        → /
+src/pages/about.tsx        → /about
+src/pages/about.loader.ts  → server data hook
 ```
 
-Writes `aether.config.json`, aliases React/Vue/… → compat packages. You still adapt routing/data fetching to Aether slots & bindings.
+SSR: IR → HTML with `data-aether-nid`, client hydrates without wiping the tree.
 
-**NestJS** is a backend framework — keep it as your API; wire effects/DSM to Nest handlers.
-
-## Client router
-
-```js
-const { createRouter, bindLinks } = window.AetherRouter;
-const router = createRouter([
-  { path: "/", handler: () => {} },
-  { path: "/about", handler: () => {} },
-]);
-router.start();
-bindLinks(document, (to) => router.navigate(to));
-```
+Vite: `import aether from 'vite-plugin-aether'` → virtual `aether:program`.
 
 ## License
 

@@ -6,6 +6,7 @@
   "componentsDir": "examples/basic/src",
   "outDir": "dist",
   "watch": ["examples/basic/src"],
+  "ssr": true,
   "wasmgc": true,
   "server": {
     "port": 3000,

@@ -5,6 +5,8 @@ import * as http from "http";
 import * as path from "path";
 import { fileURLToPath } from "url";
 import type { Duplex } from "stream";
+import { buildPagesManifest, discoverPages } from "./pages.ts";
+import { renderToString } from "../../aether_ssr/src/index.ts";
 
 type AetherConfig = {
   root?: string;
@@ -15,6 +17,8 @@ type AetherConfig = {
   outDir?: string;
   watch?: string[];
   wasmgc?: boolean;
+  pagesDir?: string;
+  ssr?: boolean;
   server?: { port?: number; host?: string };
   site?: { landing?: string; publicDir?: string };
   routes?: Record<string, { type: string; file?: string }>;
@@ -282,23 +286,46 @@ function broadcastDsm(buf: Buffer) {
   }
 }
 
+function slotValuesFromMemory(): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (!program) return out;
+  const view = Buffer.from(serverMemory.buffer);
+  for (const slot of program.slots || []) {
+    out[slot.name] = view.readInt32LE(slot.offset);
+  }
+  return out;
+}
+
 function appHtml(snapshot: Uint8Array): string {
   const b64 = Buffer.from(snapshot).toString("base64");
+  const useSsr = config.ssr !== false && program;
+  let ssrBody = "";
+  if (useSsr) {
+    try {
+      ssrBody = renderToString(program, slotValuesFromMemory());
+    } catch (e: any) {
+      console.warn("[Aether SSR]", e?.message || e);
+    }
+  }
+  const rootInner = ssrBody
+    ? `<div id="root" data-aether-ssr="1">${ssrBody}</div>`
+    : `<div id="root"></div>`;
   return `<!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Aether App</title>
+  <meta name="aether-ssr" content="${ssrBody ? "1" : "0"}" />
   <script src="/runtime.js?v=${Date.now()}" defer></script>
   <style>
     body{margin:0;padding:2rem;font-family:system-ui,sans-serif;background:#0c1118;color:#e8eef6}
-    a{color:#3ddc97}
+    a{color:#5eead4}
     button{margin-right:.5rem;margin-top:.5rem;padding:.5rem .9rem;cursor:pointer}
   </style>
 </head>
 <body>
-  <div id="root"></div>
+  ${rootInner}
   <script type="aether/snapshot" data-encoding="base64">${b64}</script>
 </body>
 </html>`;
@@ -334,15 +361,28 @@ function notifyLiveReload() {
 }
 
 function resolveRoute(urlPath: string): { type: string; file?: string } {
+  const clean = urlPath.split("?")[0];
   const routes = config.routes || {
     "/": { type: "static", file: config.site?.landing || "site/index.html" },
     "/demo": { type: "app" },
     "/app": { type: "app" },
   };
   if (routes[urlPath]) return routes[urlPath];
-  // strip query
-  const clean = urlPath.split("?")[0];
   if (routes[clean]) return routes[clean];
+
+  // File-based pages → app shell (client router / SSR entry)
+  const pages = discoverPages(PROJECT_ROOT);
+  for (const p of pages) {
+    if (p.route === clean) return { type: "app", file: p.file };
+    // param routes: /users/:id
+    if (p.route.includes(":")) {
+      const re = new RegExp(
+        "^" + p.route.replace(/:[^/]+/g, "[^/]+") + "$"
+      );
+      if (re.test(clean)) return { type: "app", file: p.file };
+    }
+  }
+
   return { type: "static", file: config.site?.landing || "site/index.html" };
 }
 
@@ -620,8 +660,23 @@ function runCompilation(callback?: () => void, exitOnError = true) {
     }
     program = JSON.parse(stdout.toString("utf-8").trim());
     initMemory(program, loadInitialState());
+    // File-based pages manifest
+    try {
+      const manifest = buildPagesManifest(PROJECT_ROOT);
+      fs.writeFileSync(
+        path.join(OUT_DIR, "pages.manifest.json"),
+        JSON.stringify(manifest, null, 2)
+      );
+      if (manifest.length) {
+        console.log(
+          `[Aether] pages=${manifest.map((m) => m.route).join(", ") || "—"}`
+        );
+      }
+    } catch (e: any) {
+      console.warn("[Aether pages]", e?.message || e);
+    }
     console.log(
-      `[Aether] slots=${program.slots.length} derived=${(program.derived || []).length} handlers=${Object.keys(program.effects || {}).join(",") || "—"}`
+      `[Aether] slots=${program.slots.length} derived=${(program.derived || []).length} handlers=${Object.keys(program.effects || {}).join(",") || "—"} ssr=${config.ssr !== false}`
     );
     callback?.();
   });
@@ -676,18 +731,23 @@ function handleMigrateCommand() {
   }
 
   const entry = detected.entry;
+  const pagesMapped = mapFrameworkPagesToAether(cwd, detected.name);
   const config = {
     root: ".",
-    entry,
+    entry: pagesMapped.entry || entry,
     state: "src/state.ts",
     bindings: "aether.bindings.json",
     componentsDir: "src",
+    pagesDir: "src/pages",
+    ssr: true,
     outDir: "dist",
     watch: ["src"],
     wasmgc: true,
     server: { port: 3000 },
     site: { landing: "index.html", publicDir: "public" },
-    routes: { "/": { type: "app" } },
+    routes: {
+      "/": { type: "app" },
+    },
     effects: {},
     migratedFrom: detected.name,
     frontend: detected.name,
@@ -740,9 +800,65 @@ function handleMigrateCommand() {
   pkg.scripts["dev:aether"] = "npm run start -w aether_cli";
   fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
   console.log(`[Aether migrate] wrote aether.config.json (from ${detected.name})`);
-  console.log(`[Aether migrate] entry=${entry}; compat aliases applied`);
-  console.log(`[Aether migrate] next: adapt routes/data to slots + bindings, then npm run dev:aether`);
+  console.log(`[Aether migrate] entry=${config.entry}; compat aliases applied`);
+  if (pagesMapped.copied) {
+    console.log(`[Aether migrate] copied ${pagesMapped.copied} page files → src/pages`);
+  }
+  console.log(`[Aether migrate] next: adapt data fetching to loaders + bindings, then npm run dev`);
   process.exit(0);
+}
+
+/** Copy Next app/pages or Nuxt pages into src/pages for file-based Aether routes. */
+function mapFrameworkPagesToAether(
+  cwd: string,
+  name: string
+): { entry: string; copied: number } {
+  const dest = path.join(cwd, "src/pages");
+  let copied = 0;
+  const copyTree = (from: string) => {
+    if (!fs.existsSync(from)) return;
+    fs.mkdirSync(dest, { recursive: true });
+    const walk = (dir: string, rel = "") => {
+      for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (ent.name.startsWith(".") || ent.name === "api") continue;
+        const src = path.join(dir, ent.name);
+        const relPath = path.join(rel, ent.name);
+        if (ent.isDirectory()) {
+          walk(src, relPath);
+          continue;
+        }
+        if (!/\.(tsx|jsx|vue|svelte|js|ts)$/.test(ent.name)) continue;
+        // Next: page.tsx → index.tsx in folder; pages/index → index
+        let outRel = relPath.replace(/\\/g, "/");
+        outRel = outRel
+          .replace(/\/page\.(tsx|jsx|js|ts)$/i, "/index.$1")
+          .replace(/^page\.(tsx|jsx|js|ts)$/i, "index.$1");
+        const out = path.join(dest, outRel);
+        fs.mkdirSync(path.dirname(out), { recursive: true });
+        if (!fs.existsSync(out)) {
+          fs.copyFileSync(src, out);
+          copied++;
+        }
+      }
+    };
+    walk(from);
+  };
+
+  if (name === "next") {
+    if (fs.existsSync(path.join(cwd, "app"))) copyTree(path.join(cwd, "app"));
+    else if (fs.existsSync(path.join(cwd, "pages"))) copyTree(path.join(cwd, "pages"));
+  } else if (name === "nuxt" || name === "vue") {
+    if (fs.existsSync(path.join(cwd, "pages"))) copyTree(path.join(cwd, "pages"));
+    else if (fs.existsSync(path.join(cwd, "app/pages"))) copyTree(path.join(cwd, "app/pages"));
+  }
+
+  const entry =
+    copied > 0 && fs.existsSync(path.join(dest, "index.tsx"))
+      ? "src/pages/index.tsx"
+      : copied > 0 && fs.existsSync(path.join(dest, "index.vue"))
+        ? "src/pages/index.vue"
+        : "";
+  return { entry, copied };
 }
 
 function detectFramework(

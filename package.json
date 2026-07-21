@@ -24,6 +24,7 @@
     "test:compiler": "cargo test -p aether_compiler",
     "smoke": "node --experimental-strip-types scripts/smoke.mjs",
     "test": "npm run test:ir && npm run test:compiler && npm run smoke",
+    "test:e2e": "npx playwright test",
     "bench": "node --experimental-strip-types packages/aether_bench/bench.ts"
   },
   "repository": {
