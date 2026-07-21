@@ -21,6 +21,6 @@
 
 ## Ship to testers / registry
 
-1. Testers (no npm token): [`TRY.md`](./TRY.md) — `git clone` → `npm run setup` → `npm run start`  
-2. Maintainers: GitHub secret `NPM_TOKEN`, push tag `v1.0.0` → Publish + Release (compiler binaries) workflows.  
-3. After first release, `npm run ensure:compiler` downloads binaries into `~/.aether/bin`.
+1. Testers: [`TRY.md`](./TRY.md) — `git clone` → `npm run setup` → `npm run start`  
+2. npm: tag `v1.0.0` → Publish + Release workflows (`NPM_TOKEN` configured)  
+3. After release: `npm create aether@latest` · `npm run ensure:compiler` pulls binaries from GitHub Releases  

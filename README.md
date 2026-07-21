@@ -62,14 +62,18 @@ npm run create -- my-app
 cd my-app && npm run dev
 ```
 
-Publish to npm: GitHub secret `NPM_TOKEN` + tag `v1.0.0` (workflows Publish + Release with compiler binaries).
+After the `v1.0.0` release is on npm:
 
+```bash
+npm create aether@latest my-app
+```
+
+Packages: `aether`, `aether_runtime`, `aether_ssr`, `aether_cli`, `create-aether`, `vite-plugin-aether`, `aether-compat-*`  
+Repo: https://github.com/1Anton10/aether-framework
 
 ## Packages (1.0)
 
 `aether` (`/store`, `/ssr`, `/router`) · `aether_runtime` · `aether_ssr` · `aether_cli` · `create-aether` · `vite-plugin-aether` · `aether-compat-*`
-
-Publish: tag `v1.0.0` + `NPM_TOKEN`.
 
 ## License
 

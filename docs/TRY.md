@@ -55,15 +55,16 @@ npm run bench:public
 
 CI uploads the same JSON as an artifact on every green run.
 
-## npm registry (when token is set)
+## npm registry
 
-Maintainers:
+Packages publish on tag `v1.0.0` (GitHub Actions + `NPM_TOKEN`).
 
-1. GitHub secret `NPM_TOKEN`  
-2. `git tag v1.0.0 && git push origin v1.0.0`  
-3. Workflows: Release (binaries) + Publish (npm)  
+```bash
+npm create aether@latest my-app
+# or: npm i aether aether_runtime create-aether
+```
 
-Until then testers use **git clone + `npm run setup`** — fully supported.
+Testers can always use **git clone + `npm run setup`** — fully supported.
 
 ## Doctor
 

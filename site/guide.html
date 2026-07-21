@@ -65,21 +65,18 @@
         </p>
 
         <h2 id="install">Установка</h2>
-        <p>Из monorepo (публикация npm — тег <code>v0.3.0</code> + <code>NPM_TOKEN</code>):</p>
-<pre><code>git clone &lt;repo&gt; aether-framework
+        <p>Из git (полный контроль, всегда работает):</p>
+<pre><code>git clone https://github.com/1Anton10/aether-framework.git
 cd aether-framework
-cargo build -p aether_compiler
 npm install
-npm run build -w aether_runtime
-
+npm run setup
 npm run create -- my-app
-cd my-app
-npm run dev</code></pre>
+cd my-app &amp;&amp; npm run dev</code></pre>
         <p>
-          После публикации пакетов: <code>npm create aether@latest my-app</code>
-          (workflow уже в репозитории; нужен <code>NPM_TOKEN</code>).
+          С npm (после релиза <code>v1.0.0</code>):
+          <code>npm create aether@latest my-app</code>
         </p>
-        <p>Сервер по умолчанию: <code>http://localhost:5173</code> (scaffold) или порт из <code>aether.config.json</code>.</p>
+        <p>Сервер: порт из <code>aether.config.json</code> (demo-сайт фреймворка — <code>3000</code>).</p>
 
         <h2 id="project">Структура проекта</h2>
 <pre><code>my-app/
@@ -309,7 +306,7 @@ export default { plugins: [aether()] };
         <li>Loop + <code>$item</code> + Condition — контракт ABI (cap 64)</li>
         <li><code>aether/store</code> / Pinia-shaped API пишет в Wasm-слоты</li>
         <li>Синтаксис → IR + migrate по экосистемам; чужие серверы не встраиваем (скорость)</li>
-        <li>Публикация: тег <code>v1.0.0</code> + <code>NPM_TOKEN</code></li>
+        <li>Пакеты на npm / бинарники компилятора — релиз <code>v1.0.0</code></li>
         </ul>
 
         <h2 id="next">Дальше</h2>

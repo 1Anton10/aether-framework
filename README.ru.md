@@ -47,6 +47,13 @@ npm run doctor
 
 Гид: [`docs/TRY.md`](docs/TRY.md)
 
+После релиза на npm:
+
+```bash
+npm create aether@latest my-app
+```
+
+Репо: https://github.com/1Anton10/aether-framework
 
 ## Лицензия
 
