@@ -1,6 +1,6 @@
 {
   "name": "aether_runtime",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "main": "./dist/index.global.js",
   "scripts": {
     "build": "tsup src/index.ts --format iife --global-name Aether && tsup src/bridge.ts --format iife --global-name AetherBridge"

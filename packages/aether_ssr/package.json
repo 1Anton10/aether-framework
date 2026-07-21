@@ -1,6 +1,6 @@
 {
   "name": "aether_ssr",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Server-side HTML rendering for Aether programs",
   "type": "module",
   "license": "MIT",

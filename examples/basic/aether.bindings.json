@@ -1,14 +1,14 @@
 {
   "derived": [
-    { "target": "doubled", "from": "count", "op": "mul", "arg": 2 },
-    { "target": "score", "from": "doubled", "op": "mul", "arg": 10 }
+    { "target": "total", "from": "cart", "op": "mul", "arg": 2 },
+    { "target": "points", "from": "total", "op": "mul", "arg": 10 }
   ],
   "handlers": {
-    "inc_count": { "op": "inc", "slot": "count", "delta": 1 },
-    "dec_count": { "op": "inc", "slot": "count", "delta": -1 },
-    "reset_count": { "op": "set", "slot": "count", "delta": 0 },
-    "server_inc_count": { "op": "inc", "slot": "count", "server": true, "delta": 1 },
-    "load_remote": { "op": "perform", "effect": "db.get", "into": "remote" },
-    "ping_effect": { "op": "perform", "effect": "ping", "into": "latency" }
+    "add_item": { "op": "inc", "slot": "cart", "delta": 1 },
+    "remove_item": { "op": "inc", "slot": "cart", "delta": -1 },
+    "clear_cart": { "op": "set", "slot": "cart", "delta": 0 },
+    "sync_cart": { "op": "inc", "slot": "cart", "server": true, "delta": 1 },
+    "load_catalog": { "op": "perform", "effect": "db.get", "into": "catalog" },
+    "measure_ping": { "op": "perform", "effect": "ping", "into": "pingMs" }
   }
 }

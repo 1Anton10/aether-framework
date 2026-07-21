@@ -47,14 +47,18 @@ const { instance } = await WebAssembly.instantiate(wasm, {
   },
 });
 instance.exports.aether_init();
-if (typeof instance.exports.inc_count === "function") {
-  instance.exports.inc_count();
+const handler = instance.exports.add_item || instance.exports.inc_count;
+if (typeof handler !== "function") {
+  console.error("smoke: missing add_item/inc_count export", Object.keys(instance.exports));
+  process.exit(1);
 }
+handler();
 const view = new DataView(instance.exports.memory.buffer);
-const count = view.getInt32(8, true);
-if (count < 1) {
-  console.error("smoke: expected count >= 1 after inc_count, got", count);
+// slots sorted alphabetically — cart is first when present
+const cart = view.getInt32(8, true);
+if (cart < 1) {
+  console.error("smoke: expected cart >= 1 after mutate, got", cart);
   process.exit(1);
 }
 
-console.log("smoke OK — wasm instantiate + inc_count →", count);
+console.log("smoke OK — wasm instantiate + mutate →", cart);

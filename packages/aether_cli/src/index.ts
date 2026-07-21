@@ -3,7 +3,7 @@ import * as crypto from "crypto";
 import * as fs from "fs";
 import * as http from "http";
 import * as path from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 import type { Duplex } from "stream";
 import { buildPagesManifest, discoverPages } from "./pages.ts";
 import { renderToString } from "../../aether_ssr/src/index.ts";
@@ -95,6 +95,7 @@ const COMMAND = args[0] || "start";
 
 let program: any = null;
 let serverMemory = new Uint8Array(8);
+let loaderData: Record<string, unknown> = {};
 const liveClients: http.ServerResponse[] = [];
 let watchTimer: ReturnType<typeof setTimeout> | null = null;
 const dsmSockets = new Set<Duplex>();
@@ -315,72 +316,83 @@ function appHtml(snapshot: Uint8Array): string {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Aether Live Playground</title>
+  <title>Aether — как это работает</title>
   <meta name="aether-ssr" content="${ssrBody ? "1" : "0"}" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <script src="/runtime.js?v=${Date.now()}" defer></script>
   <style>
-    :root {
-      --bg:#07090d; --elev:#10151d; --ink:#eef2f7; --muted:#8b95a8;
-      --line:#1c2430; --accent:#5eead4; --accent-ink:#042f2e; --warm:#fbbf24;
-    }
+    :root{--bg:#07090d;--elev:#10151d;--ink:#eef2f7;--muted:#8b95a8;--line:#1c2430;--accent:#5eead4;--accent-ink:#042f2e;--warm:#fbbf24}
     *{box-sizing:border-box;margin:0;padding:0}
-    body{
-      font-family:"Sora",system-ui,sans-serif;color:var(--ink);min-height:100vh;
-      background:
-        radial-gradient(900px 480px at 90% -20%, #134e4a55, transparent 55%),
-        radial-gradient(700px 400px at -10% 30%, #1e293b66, transparent 50%),
-        var(--bg);
-      line-height:1.5;
-    }
+    body{font-family:"Sora",system-ui,sans-serif;color:var(--ink);background:radial-gradient(900px 500px at 100% -10%,#134e4a44,transparent 50%),var(--bg);line-height:1.55;min-height:100vh}
     #root{min-height:100vh}
-    .ae-shell{width:min(1100px,calc(100% - 2rem));margin:0 auto;padding:1.25rem 0 3rem}
-    .ae-top{display:flex;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:2rem}
-    .ae-brand{font-family:"JetBrains Mono",monospace;font-weight:500;color:var(--ink);text-decoration:none;font-size:1.1rem;letter-spacing:-0.03em}
-    .ae-badge{font-size:0.75rem;padding:0.25rem 0.55rem;border-radius:999px;background:#134e4a;color:var(--accent);font-weight:600}
-    .ae-link{color:var(--muted);text-decoration:none;font-size:0.9rem;margin-left:auto}
-    .ae-link+ .ae-link{margin-left:0}
-    .ae-top .ae-link:first-of-type{margin-left:auto}
-    .ae-hero{margin-bottom:1.75rem}
-    .ae-eyebrow{color:var(--accent);font-size:0.8rem;text-transform:uppercase;letter-spacing:0.1em;font-weight:600;margin-bottom:0.6rem}
-    .ae-title{font-size:clamp(1.8rem,4vw,2.6rem);letter-spacing:-0.04em;margin-bottom:0.5rem}
-    .ae-lead{color:var(--muted);max-width:40rem}
-    .ae-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:1rem}
-    .ae-card{
-      background:var(--elev);border:1px solid var(--line);border-radius:0.65rem;padding:1.2rem 1.25rem;
-    }
-    .ae-card-hero{border-color:#134e4a99;box-shadow:0 0 40px #134e4a22}
-    .ae-card-wide{grid-column:1 / -1}
-    .ae-card h2{font-size:1rem;margin-bottom:0.35rem}
-    .ae-desc{color:var(--muted);font-size:0.88rem;margin-bottom:1rem}
-    .ae-metric{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:1rem}
-    .ae-metric-label{color:var(--muted);font-size:0.85rem}
-    .ae-metric-value{font-family:"JetBrains Mono",monospace;font-size:2.75rem;font-weight:500;color:var(--accent);letter-spacing:-0.04em}
-    .ae-row{display:flex;justify-content:space-between;gap:1rem;padding:0.45rem 0;border-bottom:1px solid var(--line);font-size:0.92rem;color:var(--muted)}
-    .ae-row:last-of-type{border-bottom:0;margin-bottom:0.75rem}
-    .ae-row strong{color:var(--ink);font-family:"JetBrains Mono",monospace;font-weight:500}
-    .ae-actions{display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:0.5rem}
-    button{
-      font-family:inherit;font-weight:600;font-size:0.88rem;cursor:pointer;
-      padding:0.55rem 0.9rem;border-radius:0.4rem;border:1px solid var(--line);
-      background:#161c26;color:var(--ink);transition:border-color .15s,transform .15s;
-    }
-    button:hover{border-color:var(--accent);transform:translateY(-1px)}
-    .ae-chips{display:flex;flex-wrap:wrap;gap:0.45rem;margin:0.75rem 0}
-    .ae-chips span{
-      font-size:0.78rem;padding:0.3rem 0.55rem;border-radius:0.35rem;
-      background:#0c1219;border:1px solid var(--line);color:var(--accent);
-      font-family:"JetBrains Mono",monospace;
-    }
-    .ae-foot{color:var(--muted);font-size:0.85rem;margin-top:0.5rem}
-    @media(max-width:720px){.ae-grid{grid-template-columns:1fr}.ae-card-wide{grid-column:auto}}
+    .tour{width:min(920px,calc(100% - 2rem));margin:0 auto;padding:1.25rem 0 3.5rem}
+    .tour-nav{display:flex;flex-wrap:wrap;align-items:center;gap:.85rem;margin-bottom:2rem}
+    .tour-logo{font-family:"JetBrains Mono",monospace;color:var(--ink);text-decoration:none;font-weight:500;font-size:1.05rem}
+    .tour-pill{font-size:.72rem;font-weight:600;padding:.2rem .55rem;border-radius:999px;background:#134e4a;color:var(--accent)}
+    .tour-nav a{color:var(--muted);text-decoration:none;font-size:.9rem}
+    .tour-nav a:hover{color:var(--accent)}
+    .tour-intro h1{font-size:clamp(1.6rem,3.5vw,2.2rem);letter-spacing:-.03em;margin-bottom:.6rem}
+    .tour-intro p{color:var(--muted);max-width:40rem;margin-bottom:2rem}
+    .tour-steps{list-style:none;display:grid;gap:1.5rem}
+    .tour-step{border:1px solid var(--line);border-radius:.75rem;background:var(--elev);overflow:hidden}
+    .tour-step-head{display:flex;gap:1rem;padding:1.25rem 1.25rem .5rem}
+    .tour-num{flex:0 0 2rem;height:2rem;border-radius:999px;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font-weight:700}
+    .tour-step-head h2{font-size:1.15rem;margin-bottom:.35rem}
+    .tour-why{color:var(--muted);font-size:.95rem}
+    .tour-demo{display:grid;grid-template-columns:1.1fr .9fr;gap:0;border-top:1px solid var(--line);margin-top:1rem}
+    .tour-demo-ui{padding:1.25rem}
+    .tour-explain{padding:1.25rem;background:#0c1118;border-left:1px solid var(--line)}
+    .tour-explain h3{font-size:.8rem;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);margin-bottom:.5rem}
+    .tour-explain p{color:var(--muted);font-size:.9rem}
+    .tour-explain code,.tour-why code,.tour-finale code,.tour-wire code{font-family:"JetBrains Mono",monospace;color:var(--warm);font-size:.85em}
+    .tour-label{color:var(--muted);font-size:.85rem;margin-bottom:.35rem}
+    .tour-big{font-family:"JetBrains Mono",monospace;font-size:2.8rem;color:var(--accent);letter-spacing:-.04em;margin-bottom:.9rem}
+    .tour-btns{display:flex;flex-wrap:wrap;gap:.5rem}
+    button{font:inherit;font-weight:600;font-size:.88rem;cursor:pointer;padding:.55rem .9rem;border-radius:.4rem;border:1px solid var(--line);background:#161c26;color:var(--ink)}
+    button:hover{border-color:var(--accent)}
+    .tour-flow{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;font-size:.95rem;color:var(--muted);margin-bottom:.75rem}
+    .tour-flow strong{color:var(--ink);font-family:"JetBrains Mono",monospace;font-size:1.15rem}
+    .tour-flow span{color:var(--accent)}
+    .tour-hint{color:var(--muted);font-size:.88rem}
+    .tour-row{display:flex;justify-content:space-between;gap:1rem;padding:.5rem 0;border-bottom:1px solid var(--line);color:var(--muted)}
+    .tour-row strong{color:var(--ink);font-family:"JetBrains Mono",monospace}
+    .tour-wire{margin-top:.85rem;font-size:.88rem;color:var(--accent)}
+    .tour-finale{margin-top:2rem;padding:1.5rem;border:1px solid var(--line);border-radius:.75rem;background:linear-gradient(135deg,#10151d,#0c1614)}
+    .tour-finale h2{font-size:1.2rem;margin-bottom:.5rem}
+    .tour-finale p{color:var(--muted);margin-bottom:.75rem}
+    .tour-finale-links{display:flex;flex-wrap:wrap;gap:1rem;align-items:center}
+    .tour-cta{display:inline-flex;padding:.65rem 1rem;background:var(--accent);color:var(--accent-ink);text-decoration:none;font-weight:700;border-radius:.4rem}
+    .tour-finale-links a:not(.tour-cta){color:var(--muted)}
+    @media(max-width:800px){.tour-demo{grid-template-columns:1fr}.tour-explain{border-left:0;border-top:1px solid var(--line)}}
   </style>
 </head>
 <body>
   ${rootInner}
   <script type="aether/snapshot" data-encoding="base64">${b64}</script>
+  <script type="application/json" id="aether-loaders">${JSON.stringify(loaderData)}</script>
+  <script>
+  (function(){
+    const el = () => document.getElementById('tour-wire');
+    const orig = window.fetch;
+    window.fetch = async function(input, init){
+      const url = typeof input === 'string' ? input : (input && input.url) || '';
+      const res = await orig.apply(this, arguments);
+      if (url.indexOf('/api/delta') >= 0 || url.indexOf('/api/effect') >= 0) {
+        try {
+          const clone = res.clone();
+          const buf = await clone.arrayBuffer();
+          const n = buf.byteLength;
+          const jsonGuess = 48;
+          const node = el();
+          if (node) node.textContent = 'Ответ сервера: ' + n + ' байт (binary). Типичный JSON на то же изменение ≈ ' + jsonGuess + '+ байт.';
+        } catch(e) {}
+      }
+      return res;
+    };
+  })();
+  </script>
 </body>
 </html>`;
 }
@@ -496,6 +508,36 @@ function startDevServer() {
         res.writeHead(200, { "Content-Type": "application/octet-stream" });
         res.end(out);
       });
+      return;
+    }
+
+    if (url === "/api/ssr" && req.method === "GET") {
+      res.writeHead(200, {
+        "Content-Type": "text/html; charset=utf-8",
+        "Transfer-Encoding": "chunked",
+        "X-Aether-SSR": "stream",
+      });
+      void (async () => {
+        try {
+          const { renderToStream } = await import("../../aether_ssr/src/index.ts");
+          if (!program) {
+            res.end("<!-- no program -->");
+            return;
+          }
+          for await (const chunk of renderToStream(program, slotValuesFromMemory())) {
+            res.write(chunk);
+          }
+          res.end();
+        } catch (e: any) {
+          res.end(`<!-- ssr error: ${e?.message || e} -->`);
+        }
+      })();
+      return;
+    }
+
+    if (url === "/loader-data.json") {
+      res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify(loaderData));
       return;
     }
 
@@ -683,6 +725,32 @@ async function startHttp3WebTransport() {
   }
 }
 
+async function refreshLoaders() {
+  loaderData = {};
+  try {
+    const manifest = buildPagesManifest(PROJECT_ROOT);
+    for (const page of manifest) {
+      if (!page.loader) continue;
+      const abs = path.join(PROJECT_ROOT, page.loader);
+      try {
+        const mod: any = await import(pathToFileURL(abs).href + `?t=${Date.now()}`);
+        const fn = mod.load || mod.default;
+        if (typeof fn === "function") {
+          loaderData[page.route] = await fn();
+        }
+      } catch (e: any) {
+        loaderData[page.route] = { error: String(e?.message || e) };
+      }
+    }
+    fs.writeFileSync(
+      path.join(OUT_DIR, "loader-data.json"),
+      JSON.stringify(loaderData, null, 2)
+    );
+  } catch (e: any) {
+    console.warn("[Aether loaders]", e?.message || e);
+  }
+}
+
 function runCompilation(callback?: () => void, exitOnError = true) {
   if (!fs.existsSync(ENTRY)) {
     console.error("entry not found:", ENTRY);
@@ -720,25 +788,27 @@ function runCompilation(callback?: () => void, exitOnError = true) {
     }
     program = JSON.parse(stdout.toString("utf-8").trim());
     initMemory(program, loadInitialState());
-    // File-based pages manifest
-    try {
-      const manifest = buildPagesManifest(PROJECT_ROOT);
-      fs.writeFileSync(
-        path.join(OUT_DIR, "pages.manifest.json"),
-        JSON.stringify(manifest, null, 2)
-      );
-      if (manifest.length) {
-        console.log(
-          `[Aether] pages=${manifest.map((m) => m.route).join(", ") || "—"}`
+    // File-based pages manifest + loaders
+    void refreshLoaders().then(() => {
+      try {
+        const manifest = buildPagesManifest(PROJECT_ROOT);
+        fs.writeFileSync(
+          path.join(OUT_DIR, "pages.manifest.json"),
+          JSON.stringify(manifest, null, 2)
         );
+        if (manifest.length) {
+          console.log(
+            `[Aether] pages=${manifest.map((m) => m.route).join(", ") || "—"}`
+          );
+        }
+      } catch (e: any) {
+        console.warn("[Aether pages]", e?.message || e);
       }
-    } catch (e: any) {
-      console.warn("[Aether pages]", e?.message || e);
-    }
-    console.log(
-      `[Aether] slots=${program.slots.length} derived=${(program.derived || []).length} handlers=${Object.keys(program.effects || {}).join(",") || "—"} ssr=${config.ssr !== false}`
-    );
-    callback?.();
+      console.log(
+        `[Aether] slots=${program.slots.length} derived=${(program.derived || []).length} handlers=${Object.keys(program.effects || {}).join(",") || "—"} ssr=${config.ssr !== false}`
+      );
+      callback?.();
+    });
   });
 }
 

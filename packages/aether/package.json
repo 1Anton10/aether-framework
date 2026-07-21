@@ -1,7 +1,7 @@
 {
   "name": "aether",
-  "version": "0.1.0",
-  "description": "Aether Wasm UI framework — meta package",
+  "version": "0.2.0",
+  "description": "Aether — Wasm UI framework (compile → memory → DOM → binary DSM)",
   "type": "module",
   "license": "MIT",
   "exports": {
@@ -9,12 +9,20 @@
     "./ssr": "./ssr.js",
     "./router": "./router.js"
   },
+  "files": ["index.js", "ssr.js", "router.js", "README.md"],
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
-    "aether_runtime": "0.1.0",
-    "aether_ssr": "0.1.0"
+    "aether_runtime": "0.2.0",
+    "aether_ssr": "0.2.0"
   },
   "engines": {
     "node": ">=18"
   },
-  "keywords": ["aether", "wasm", "ui", "framework", "ssr"]
+  "keywords": ["aether", "wasm", "ui", "framework", "ssr", "dsm"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aether-js/aether-framework.git"
+  }
 }
