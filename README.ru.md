@@ -2,7 +2,7 @@
 
 **Frontend Runtime Standard v1.0** — UI → IR → память Wasm → dirty-DAG патчи → binary DSM.
 
-[![CI](https://github.com/aether-js/aether-framework/actions/workflows/ci.yml/badge.svg)](https://github.com/aether-js/aether-framework/actions/workflows/ci.yml)
+[![CI](https://github.com/1Anton10/aether-framework/actions/workflows/ci.yml/badge.svg)](https://github.com/1Anton10/aether-framework/actions/workflows/ci.yml)
 
 > **v1.0 — промышленный стандарт рантайма фронтенда** ([`docs/STANDARD.md`](docs/STANDARD.md)).  
 > English: [`README.md`](README.md)
@@ -37,7 +37,7 @@ Aether — **стандарт рантайма** под любой синтак�
 ## Быстрый старт (тестеры)
 
 ```bash
-git clone https://github.com/aether-js/aether-framework.git
+git clone https://github.com/1Anton10/aether-framework.git
 cd aether-framework
 npm install
 npm run setup

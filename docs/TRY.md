@@ -5,7 +5,7 @@ Give this page to anyone who should stress-test the **Frontend Runtime Standard 
 ## 5-minute path (from git)
 
 ```bash
-git clone https://github.com/aether-js/aether-framework.git
+git clone https://github.com/1Anton10/aether-framework.git
 cd aether-framework
 npm install
 npm run setup          # compiler + runtime + smoke + public bench

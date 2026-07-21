@@ -73,7 +73,7 @@ function download(url, dest) {
 }
 
 async function tryDownloadRelease() {
-  const repo = process.env.AETHER_REPO || "aether-js/aether-framework";
+  const repo = process.env.AETHER_REPO || "1Anton10/aether-framework";
   const tag = process.env.AETHER_RELEASE || "latest";
   const asset = platformAsset();
   const api =

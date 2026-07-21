@@ -2,7 +2,7 @@
 
 **Frontend Runtime Standard v1.0** — compile UI → IR → Wasm memory → dirty-DAG DOM patches → binary DSM.
 
-[![CI](https://github.com/aether-js/aether-framework/actions/workflows/ci.yml/badge.svg)](https://github.com/aether-js/aether-framework/actions/workflows/ci.yml)
+[![CI](https://github.com/1Anton10/aether-framework/actions/workflows/ci.yml/badge.svg)](https://github.com/1Anton10/aether-framework/actions/workflows/ci.yml)
 
 > **Status: v1.0 — industrial Frontend Runtime Standard** ([`docs/ABI.md`](docs/ABI.md), [`docs/STANDARD.md`](docs/STANDARD.md)).  
 > Russian: [`README.ru.md`](README.ru.md)
@@ -47,7 +47,7 @@ Homepage **Live measure**: wall-clock DOM + payload + live `/api/delta` in *your
 ## Quick start (testers)
 
 ```bash
-git clone https://github.com/aether-js/aether-framework.git
+git clone https://github.com/1Anton10/aether-framework.git
 cd aether-framework
 npm install
 npm run setup          # compiler + runtime + smoke + public bench

@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "aether-monorepo",
   "version": "1.0.0",
   "private": true,
@@ -35,7 +35,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/aether-js/aether-framework.git"
+    "url": "https://github.com/1Anton10/aether-framework.git"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1"
