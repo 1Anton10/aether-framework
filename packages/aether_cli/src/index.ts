@@ -526,8 +526,14 @@ function startDevServer() {
       }
     }
 
-    // static site assets
-    if (url !== "/" && !url.startsWith("/api") && !url.startsWith("/demo") && !url.startsWith("/app")) {
+    // static site assets (do not treat /api.html as /api/* endpoints)
+    if (
+      url !== "/" &&
+      !url.startsWith("/api/") &&
+      !url.startsWith("/demo") &&
+      url !== "/app" &&
+      !url.startsWith("/app/")
+    ) {
       const filePath = path.join(PUBLIC_DIR, url.replace(/^\//, ""));
       if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
         const ext = path.extname(filePath).toLowerCase();
