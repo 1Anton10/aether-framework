@@ -17,15 +17,15 @@
         <a href="/#compare">Compare</a>
         <a href="/guide.html">Guide</a>
         <a class="active" href="/api.html">API</a>
-        <a href="/demo">Live app</a>
+        <a href="/demo">Demo</a>
       </div>
     </div>
   </nav>
 
   <main class="section doc">
-    <div class="wrap">
-      <h1 style="font-size:2rem;letter-spacing:-0.03em;margin-bottom:0.5rem">API Reference</h1>
-      <p class="sub">Это страница документации API — не лендинг. Конфиг, CLI, runtime, DSM, SSR.</p>
+    <div class="wrap doc-body">
+      <h1>API</h1>
+      <p class="sub">Конфиг, CLI, HTTP/DSM, handlers, пакеты. Подробный путь разработчика — в Guide.</p>
 
       <h2>aether.config.json</h2>
 <pre><code>{
@@ -43,61 +43,76 @@
     "/demo": { "type": "app" }
   },
   "effects": {
-    "db.get": { "type": "add", "arg": 100 }
+    "db.get": { "type": "catalog" },
+    "ping": { "type": "rtt" }
   }
 }</code></pre>
 
       <h2>CLI</h2>
       <ul>
-        <li><code>create &lt;name&gt;</code> — scaffold приложения</li>
-        <li><code>dev</code> / <code>start</code> — HMR + SSR + DSM</li>
-        <li><code>build</code> / <code>deploy</code> — production bundle</li>
-        <li><code>migrate</code> — Next / Nuxt / Vite → Aether + <code>src/pages</code></li>
+        <li><code>create</code> — scaffold приложения</li>
+        <li><code>dev</code> / <code>start</code> — HMR, SSR, DSM</li>
+        <li><code>build</code> / <code>deploy</code> — production</li>
+        <li><code>migrate</code> — Next / Nuxt / Vue / Svelte / Angular / Solid / Qwik / Lit / Vite → Aether</li>
       </ul>
 
       <h2>HTTP / DSM</h2>
       <ul>
-        <li><code>POST /api/delta</code> — binary deltas <code>[slot u32][len u32][payload…]</code></li>
-        <li><code>POST /api/effect</code> — effect frame → resume delta</li>
-        <li><code>WS /aether-dsm</code> · <code>WS /api/dsm</code> — same codec; effect prefix <code>0xEF</code></li>
+        <li><code>POST /api/delta</code> — <code>[slot u32][len u32][payload…]</code></li>
+        <li><code>POST /api/effect</code> — effect → resume; заголовок <code>X-Aether-Effect-Mode</code></li>
+        <li><code>GET /api/catalog</code> — JSON каталога (demo host)</li>
+        <li><code>WS /aether-dsm</code> · <code>/api/dsm</code> — тот же кодек</li>
         <li><code>GET /app.wasm</code> · <code>/app.gc.wasm</code> · <code>/aether.program.json</code></li>
+        <li><code>GET /api/ssr</code> — stream HTML</li>
       </ul>
 
-      <h2>Bindings handlers</h2>
+      <h2>Handlers</h2>
       <ul>
-        <li><code>{ "op": "inc"|"dec"|"add", "slot", "delta?" }</code></li>
-        <li><code>{ "op": "set", "slot", "delta": value }</code> — absolute LocalSet</li>
-        <li><code>{ "op": "inc", "slot", "server": true }</code> — DSM server mutate</li>
-        <li><code>{ "op": "perform", "effect", "into" }</code> — algebraic effect</li>
+        <li><code>inc</code> / <code>dec</code> / <code>add</code> — локальный mutate</li>
+        <li><code>set</code> — LocalSet</li>
+        <li><code>server: true</code> — DSM mutate через <code>/api/delta</code></li>
+        <li><code>perform</code> — effect → слот <code>into</code></li>
+        <li>effect types: <code>catalog</code>, <code>set</code>, <code>add</code>, <code>mul</code>, <code>rtt</code></li>
       </ul>
 
-      <h2>Runtime (browser)</h2>
+      <h2>Runtime</h2>
       <ul>
-        <li><code>AetherRuntime</code> — mount / hydrate SSR (<code>data-aether-nid</code>)</li>
-        <li><code>window.AetherRouter</code> — <code>createRouter</code>, <code>bindLinks</code></li>
-        <li>Exports: <code>aether_init</code>, <code>apply_delta</code>, <code>aether_resume</code>, handlers</li>
+        <li><code>AetherRuntime</code> — mount / hydrate</li>
+        <li><code>AetherRouter</code> — client router</li>
+        <li>Wasm exports: <code>aether_init</code>, <code>apply_delta</code>, handlers</li>
       </ul>
 
       <h2>Packages</h2>
       <ul>
-        <li><code>aether</code> / <code>aether/ssr</code> / <code>aether/router</code></li>
-        <li><code>aether_ssr</code> — <code>renderToString</code>, <code>renderToStream</code></li>
-        <li><code>vite-plugin-aether</code> — virtual <code>aether:program</code></li>
-        <li><code>create-aether</code> — scaffold</li>
-        <li><code>aether-compat-*</code> — React / Vue / Solid / Qwik / Lit / Angular</li>
+        <li><code>aether</code> · <code>aether/ssr</code> · <code>aether/router</code></li>
+        <li><code>aether_ssr</code> — <code>renderToString</code> / stream</li>
+        <li><code>vite-plugin-aether</code></li>
+        <li><code>create-aether</code> · <code>aether_cli</code></li>
+        <li><code>aether-compat-react|vue|svelte|solid|qwik|lit|angular</code> — алиасы при migrate</li>
       </ul>
 
-      <h2>Pages &amp; loaders</h2>
+      <h2>Синтаксис → IR</h2>
+      <p>
+        Парсеры: JSX/TSX, Vue SFC, Svelte, Angular template, Solid, Qwik, Lit, HTML.
+        Это компиляция шаблона в IR, не полный runtime исходного фреймворка.
+        Nuxt / Next / SvelteKit — через migrate + парсер базового синтаксиса.
+      </p>
+
+      <h2>Pages</h2>
 <pre><code>src/pages/index.tsx       → /
 src/pages/about.tsx       → /about
-src/pages/about.loader.ts → server loader module
+src/pages/about.loader.ts → loader
 → dist/pages.manifest.json</code></pre>
+
+      <p class="sub" style="margin-top:2rem">
+        Норматив: <code>docs/ABI.md</code> · схема: <code>schemas/bindings.schema.json</code>
+      </p>
     </div>
   </main>
 
   <footer class="footer">
     <div class="wrap footer-inner">
-      <span>Aether API · v0.1.0</span>
+      <span>Aether API · v1.0</span>
       <a href="/">← Home</a>
     </div>
   </footer>

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Aether — The Wasm UI Framework</title>
+  <title>Aether</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -17,7 +17,7 @@
         <a href="#compare">Compare</a>
         <a href="/guide.html">Guide</a>
         <a href="/api.html">API</a>
-        <a href="/demo">Live app</a>
+        <a href="/demo">Demo</a>
       </div>
     </div>
   </nav>
@@ -25,16 +25,17 @@
   <header class="hero">
     <div class="wrap hero-grid">
       <div class="hero-copy">
-        <p class="eyebrow">v0.2 · Wasm UI baseline</p>
+        <p class="eyebrow">v1.0 · Frontend Runtime Standard</p>
         <h1>Aether</h1>
-        <p class="tagline">Не VDOM. Память. Дельта. Синхрон.</p>
+        <p class="tagline">UI → IR → Wasm memory → DOM patch → binary DSM</p>
         <p class="lead">
-          UI компилируется в Wasm. Состояние — в linear/GC памяти.
-          Обновления — binary DSM. SSR без гидратационного ада React.
+          Фреймворк компилирует интерфейс в WebAssembly. Состояние живёт в памяти модуля,
+          обновления идут точечными патчами по dirty DAG, синхронизация с сервером —
+          бинарными дельтами. SSR отдаёт HTML с node id для гидратации.
         </p>
         <div class="cta">
-        <a class="btn primary" href="/demo">Открыть Live app</a>
-        <a class="btn" href="#compare">Сравнение</a>
+          <a class="btn primary" href="/demo">Demo</a>
+          <a class="btn" href="/guide.html">Guide</a>
         </div>
       </div>
       <aside class="hero-panel" aria-label="Install">
@@ -42,104 +43,104 @@
           <span></span><span></span><span></span>
           <em>terminal</em>
         </div>
-        <pre class="panel-code"><code><span class="cmt"># новый стандарт старта</span>
-npm run create -- my-app
+        <pre class="panel-code"><code>npm run create -- my-app
 cd my-app && npm run dev
 
-<span class="cmt"># pages · loaders · SSR · Vite plugin</span>
-src/pages/index.tsx
-src/pages/about.loader.ts</code></pre>
+# entry · bindings · pages/loaders
+aether.config.json</code></pre>
       </aside>
     </div>
   </header>
 
   <section id="compare" class="section compare-section">
     <div class="wrap">
-      <h2>Старый мир vs Aether</h2>
+      <h2>Live measure</h2>
       <p class="sub">
-        Живой бенч на этой странице: слева — модель React/Nuxt (полный reconcile + JSON),
-        справа — модель Aether (точечный patch + binary delta).
+        Реальный прогон в <em>этом</em> браузере: полный обход DOM + JSON против dirty-патчей
+        и 12-байтных бинарных дельт. Плюс живой <code>POST /api/delta</code> (тот же DSM-кодек).
       </p>
 
       <div class="bench-controls">
-        <label>Слотов / узлов: <strong id="bench-n">500</strong></label>
+        <label>Узлов: <strong id="bench-n">500</strong></label>
         <input id="bench-range" type="range" min="50" max="2000" step="50" value="500" />
-        <button type="button" class="btn primary" id="bench-run">Запустить 60 кадров</button>
+        <button type="button" class="btn primary" id="bench-run">Измерить 60 кадров</button>
+        <span class="bench-host" id="bench-host"></span>
       </div>
 
       <div class="compare-grid">
         <article class="compare-card old">
           <header>
-            <h3>Classic SPA</h3>
-            <p>React · Vue · Nuxt-style VDOM</p>
+            <h3>Classic SPA shape</h3>
+            <p>full DOM walk + JSON.stringify</p>
           </header>
           <ul class="metric-list">
-            <li><span>Работа за кадр</span><strong id="old-work">—</strong></li>
-            <li><span>Байт на проводе</span><strong id="old-bytes">—</strong></li>
-            <li><span>Полных reconcile</span><strong id="old-reconcile">—</strong></li>
-            <li><span>Hydration cost</span><strong id="old-hydrate">высокий</strong></li>
+            <li><span>Время</span><strong id="old-work">—</strong></li>
+            <li><span>Байт payload</span><strong id="old-bytes">—</strong></li>
+            <li><span>Кадры</span><strong id="old-reconcile">—</strong></li>
+            <li><span>Стратегия</span><strong id="old-hydrate">full walk</strong></li>
           </ul>
           <div class="bar-track"><div class="bar old-bar" id="old-bar"></div></div>
-          <p class="card-foot">JSON state · virtual tree · re-render subtree</p>
+          <p class="card-foot">каждый кадр: N textContent + JSON snapshot</p>
         </article>
 
         <article class="compare-card new">
           <header>
-            <h3>Aether</h3>
-            <p>Wasm memory · dirty DAG · DSM</p>
+            <h3>Aether shape</h3>
+            <p>dirty subset + binary DSM</p>
           </header>
           <ul class="metric-list">
-            <li><span>Работа за кадр</span><strong id="new-work">—</strong></li>
-            <li><span>Байт на проводе</span><strong id="new-bytes">—</strong></li>
+            <li><span>Время</span><strong id="new-work">—</strong></li>
+            <li><span>Байт payload</span><strong id="new-bytes">—</strong></li>
             <li><span>DOM patches</span><strong id="new-patches">—</strong></li>
-            <li><span>Hydration cost</span><strong id="new-hydrate">snapshot</strong></li>
+            <li><span>Стратегия</span><strong id="new-hydrate">dirty only</strong></li>
           </ul>
           <div class="bar-track"><div class="bar new-bar" id="new-bar"></div></div>
-          <p class="card-foot">binary delta 12B/slot · mount once · SSR hydrate</p>
+          <p class="card-foot">каждый кадр: ~√N патчей · 12 B / слот</p>
         </article>
       </div>
 
-      <p class="bench-verdict" id="bench-verdict">Нажми «Запустить» — увидишь разницу в работе и байтах.</p>
+      <p class="bench-verdict" id="bench-verdict">Нажмите «Измерить» — цифры с вашего CPU/браузера.</p>
+      <p class="sub" id="bench-public" style="margin-top:0.5rem"></p>
 
       <div class="compare-table-wrap">
         <table class="compare-table">
           <thead>
             <tr>
               <th></th>
-              <th>Next / Nuxt / React</th>
+              <th>Classic SPA</th>
               <th>Aether</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td>Состояние</td>
+              <td>State</td>
               <td>JS heap + VDOM</td>
-              <td>Wasm linear + GC heap</td>
+              <td>Wasm memory</td>
             </tr>
             <tr>
-              <td>Старт</td>
+              <td>Start</td>
               <td>Hydrate JS tree</td>
-              <td>Binary snapshot resume</td>
+              <td>Binary snapshot + nid</td>
             </tr>
             <tr>
               <td>Sync</td>
-              <td>JSON / RSC payload</td>
-              <td>Binary DSM / WebTransport</td>
+              <td>JSON</td>
+              <td>Binary DSM</td>
             </tr>
             <tr>
-              <td>Синтаксис</td>
-              <td>Один экосистемный lock-in</td>
-              <td>JSX Vue Svelte Angular Solid Qwik Lit → один IR</td>
+              <td>Syntax / meta</td>
+              <td>Один runtime (React/Vue/…)</td>
+              <td>migrate + синтаксис → IR</td>
             </tr>
             <tr>
               <td>SSR</td>
-              <td>Render + hydrate mismatch risk</td>
-              <td>IR → HTML + nid hydrate</td>
+              <td>Render + hydrate</td>
+              <td>IR → HTML + data-aether-nid</td>
             </tr>
             <tr>
-              <td>Pages</td>
-              <td>file routes + loaders</td>
-              <td>src/pages/* + *.loader.ts</td>
+              <td>Стейт</td>
+              <td>Pinia / Redux / …</td>
+              <td>Wasm slots + derived DAG + effects</td>
             </tr>
           </tbody>
         </table>
@@ -149,17 +150,17 @@ src/pages/about.loader.ts</code></pre>
 
   <section class="section alt">
     <div class="wrap">
-      <h2>Что умеет прямо сейчас</h2>
+      <h2>Возможности v1.0</h2>
       <div class="grid">
-        <article class="card"><h3>SSR + hydrate</h3><p>IR → HTML на сервере, клиент цепляет <code>data-aether-nid</code>.</p></article>
-        <article class="card"><h3>File pages</h3><p><code>src/pages</code> → маршруты, loaders рядом с страницей.</p></article>
-        <article class="card"><h3>Vite plugin</h3><p><code>vite-plugin-aether</code> — virtual <code>aether:program</code>.</p></article>
-        <article class="card"><h3>create-aether</h3><p>Scaffold как create-vite / nuxi.</p></article>
-        <article class="card"><h3>DSM</h3><p>WebTransport → WS → HTTP, один кодек.</p></article>
-        <article class="card"><h3>Migrate</h3><p>Next / Nuxt / Vite / Angular → aether.config + pages.</p></article>
+        <article class="card"><h3>SSR</h3><p>IR → HTML, гидратация по <code>data-aether-nid</code>.</p></article>
+        <article class="card"><h3>Pages</h3><p><code>src/pages</code> и рядом <code>*.loader.ts</code>.</p></article>
+        <article class="card"><h3>Vite</h3><p><code>vite-plugin-aether</code>, модуль <code>aether:program</code>.</p></article>
+        <article class="card"><h3>Scaffold</h3><p><code>create-aether</code> / <code>npm run create</code>.</p></article>
+        <article class="card"><h3>DSM</h3><p>Один бинарный кодек: HTTP и WebSocket.</p></article>
+        <article class="card"><h3>Migrate</h3><p>Next, Nuxt, Vue, Svelte, Angular, Solid, Qwik, Lit, Vite.</p></article>
       </div>
       <div class="cta" style="margin-top:1.5rem">
-        <a class="btn primary" href="/demo">Playground →</a>
+        <a class="btn primary" href="/demo">Demo</a>
         <a class="btn" href="/guide.html">Guide</a>
       </div>
     </div>
@@ -167,11 +168,11 @@ src/pages/about.loader.ts</code></pre>
 
   <footer class="footer">
     <div class="wrap footer-inner">
-      <span>Aether · MIT · v0.1.0</span>
+      <span>Aether · MIT · v1.0</span>
       <div class="nav-links">
         <a href="/guide.html">Guide</a>
         <a href="/api.html">API</a>
-        <a href="/demo">App</a>
+        <a href="/demo">Demo</a>
       </div>
     </div>
   </footer>

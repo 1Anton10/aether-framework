@@ -22,7 +22,8 @@
     "/app": { "type": "app" }
   },
   "effects": {
-    "db.get": { "type": "add", "arg": 42 },
-    "ping": { "type": "add", "arg": 8 }
+    "db.get": { "type": "catalog" },
+    "ping": { "type": "rtt" },
+    "toggle": { "type": "toggle" }
   }
 }

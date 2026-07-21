@@ -1,9 +1,22 @@
 {
   "name": "aether-adapter",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
+  "description": "Host adapter helpers for the Aether Wasm UI Runtime",
+  "license": "MIT",
   "main": "index.js",
   "exports": {
     ".": "./index.js"
+  },
+  "files": [
+    "*.js",
+    "package.json"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aether-js/aether-framework.git"
   }
 }

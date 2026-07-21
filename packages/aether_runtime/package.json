@@ -1,9 +1,35 @@
 {
   "name": "aether_runtime",
-  "version": "0.2.0",
+  "version": "1.0.0",
+  "description": "Aether browser runtime вЂ” snapshot, dirty DAG, DSM, effects",
+  "license": "MIT",
+  "type": "module",
   "main": "./dist/index.global.js",
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
-    "build": "tsup src/index.ts --format iife --global-name Aether && tsup src/bridge.ts --format iife --global-name AetherBridge"
+    "build": "tsup src/index.ts --format iife --global-name Aether && tsup src/bridge.ts --format iife --global-name AetherBridge",
+    "prepublishOnly": "npm run build"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "aether",
+    "wasm",
+    "runtime",
+    "dsm",
+    "ui"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aether-js/aether-framework.git",
+    "directory": "packages/aether_runtime"
   },
   "devDependencies": {
     "typescript": "^5.3.3",

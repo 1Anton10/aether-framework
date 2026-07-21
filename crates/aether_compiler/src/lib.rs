@@ -8,8 +8,8 @@ use std::fs;
 use std::path::Path;
 use swc_common::{errors::Handler, sync::Lrc, FileName, SourceMap};
 use swc_ecma_ast::{
-    Expr, JSXAttrOrSpread, JSXAttrValue, JSXElement, JSXElementChild, JSXElementName, JSXExpr, Lit,
-    ModuleItem,
+    Callee, Expr, JSXAttrOrSpread, JSXAttrValue, JSXElement, JSXElementChild, JSXElementName,
+    JSXExpr, Lit, MemberProp, ModuleItem, Pat,
 };
 use swc_ecma_parser::{lexer::Lexer, Parser, StringInput, Syntax, TsConfig};
 
@@ -209,6 +209,10 @@ fn transform_jsx(jsx: &JSXElement, ids: &mut IdGen, nodes: &mut Vec<AetherNode>)
                             children: vec![],
                         };
                         child_ids.push(text_id);
+                    } else if let Some(loop_id) = try_transform_map(expr, ids, nodes) {
+                        child_ids.push(loop_id);
+                    } else if let Some(cond_id) = try_transform_condition(expr, ids, nodes) {
+                        child_ids.push(cond_id);
                     }
                 }
             }
@@ -231,6 +235,156 @@ fn transform_jsx(jsx: &JSXElement, ids: &mut IdGen, nodes: &mut Vec<AetherNode>)
     };
 
     node_id
+}
+
+/// `{items.map((item) => <li>…</li>)}` → template node with ControlFlow::Loop(items, item).
+fn try_transform_map(
+    expr: &Expr,
+    ids: &mut IdGen,
+    nodes: &mut Vec<AetherNode>,
+) -> Option<NodeId> {
+    let Expr::Call(call) = expr else {
+        return None;
+    };
+    let Callee::Expr(callee) = &call.callee else {
+        return None;
+    };
+    let Expr::Member(member) = &**callee else {
+        return None;
+    };
+    let MemberProp::Ident(prop) = &member.prop else {
+        return None;
+    };
+    if prop.sym.as_ref() != "map" {
+        return None;
+    }
+    // `items.map` or Solid `items().map`
+    let collection = match &*member.obj {
+        Expr::Ident(obj) => obj.sym.to_string(),
+        Expr::Call(inner) => {
+            let Callee::Expr(cal) = &inner.callee else {
+                return None;
+            };
+            let Expr::Ident(id) = &**cal else {
+                return None;
+            };
+            if !inner.args.is_empty() {
+                return None;
+            }
+            id.sym.to_string()
+        }
+        _ => return None,
+    };
+    let arg0 = call.args.first()?;
+    let (item_name, body_jsx) = extract_map_callback(&arg0.expr)?;
+    let template_id = transform_jsx(body_jsx, ids, nodes);
+    // Mark the template root as a loop body keyed by collection length slot.
+    nodes[template_id.0 as usize].control_flow = ControlFlow::Loop(collection.clone(), item_name.clone());
+    // Item idents inside the template → Expression("$item") for per-row patch (index / packed).
+    rewrite_loop_item_bindings(nodes, template_id, &item_name);
+    Some(template_id)
+}
+
+/// `{visible && <div/>}` → template with ControlFlow::Condition(visible).
+fn try_transform_condition(
+    expr: &Expr,
+    ids: &mut IdGen,
+    nodes: &mut Vec<AetherNode>,
+) -> Option<NodeId> {
+    let Expr::Bin(bin) = expr else {
+        return None;
+    };
+    if !matches!(bin.op, swc_ecma_ast::BinaryOp::LogicalAnd) {
+        return None;
+    }
+    let Expr::Ident(cond) = &*bin.left else {
+        return None;
+    };
+    let jsx = jsx_from_expr(&bin.right)?;
+    let template_id = transform_jsx(jsx, ids, nodes);
+    nodes[template_id.0 as usize].control_flow =
+        ControlFlow::Condition(cond.sym.to_string());
+    Some(template_id)
+}
+
+/// Rewrite Reactive(item) under a Loop template to Expression("$item").
+fn rewrite_loop_item_bindings(nodes: &mut [AetherNode], root: NodeId, item_name: &str) {
+    let mut stack = vec![root];
+    while let Some(id) = stack.pop() {
+        let idx = id.0 as usize;
+        if idx >= nodes.len() {
+            continue;
+        }
+        let children = nodes[idx].children.clone();
+        match &nodes[idx].node_type {
+            NodeType::Text(Binding::Reactive(name)) if name == item_name => {
+                nodes[idx].node_type = NodeType::Text(Binding::Expression("$item".into()));
+            }
+            NodeType::Element { .. } => {
+                if let NodeType::Element { props, .. } = &mut nodes[idx].node_type {
+                    for binding in props.values_mut() {
+                        if let Binding::Reactive(name) = binding {
+                            if name == item_name {
+                                *binding = Binding::Expression("$item".into());
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        for child in children {
+            stack.push(child);
+        }
+    }
+}
+
+fn extract_map_callback(expr: &Expr) -> Option<(String, &JSXElement)> {
+    match expr {
+        Expr::Arrow(arrow) => {
+            let item = match arrow.params.first() {
+                Some(Pat::Ident(id)) => id.id.sym.to_string(),
+                _ => "_".to_string(),
+            };
+            let jsx = match &*arrow.body {
+                swc_ecma_ast::BlockStmtOrExpr::Expr(e) => jsx_from_expr(e)?,
+                swc_ecma_ast::BlockStmtOrExpr::BlockStmt(block) => {
+                    let stmt = block.stmts.last()?;
+                    match stmt {
+                        swc_ecma_ast::Stmt::Return(ret) => {
+                            jsx_from_expr(ret.arg.as_ref()?.as_ref())?
+                        }
+                        swc_ecma_ast::Stmt::Expr(es) => jsx_from_expr(&es.expr)?,
+                        _ => return None,
+                    }
+                }
+            };
+            Some((item, jsx))
+        }
+        Expr::Fn(f) => {
+            let item = match f.function.params.first().map(|p| &p.pat) {
+                Some(Pat::Ident(id)) => id.id.sym.to_string(),
+                _ => "_".to_string(),
+            };
+            let block = f.function.body.as_ref()?;
+            let stmt = block.stmts.last()?;
+            let jsx = match stmt {
+                swc_ecma_ast::Stmt::Return(ret) => jsx_from_expr(ret.arg.as_ref()?.as_ref())?,
+                _ => return None,
+            };
+            Some((item, jsx))
+        }
+        Expr::Paren(p) => extract_map_callback(&p.expr),
+        _ => None,
+    }
+}
+
+fn jsx_from_expr(expr: &Expr) -> Option<&JSXElement> {
+    match expr {
+        Expr::JSXElement(el) => Some(el),
+        Expr::Paren(p) => jsx_from_expr(&p.expr),
+        _ => None,
+    }
 }
 
 /// Lower a flat node table into slots, edges, and effects.
@@ -355,6 +509,15 @@ pub fn lower_program(
 
 fn collect_reactive_names(nodes: &[AetherNode], out: &mut HashSet<String>) {
     for node in nodes {
+        match &node.control_flow {
+            ControlFlow::Loop(collection, _) => {
+                out.insert(collection.clone());
+            }
+            ControlFlow::Condition(name) => {
+                out.insert(name.clone());
+            }
+            ControlFlow::None => {}
+        }
         match &node.node_type {
             NodeType::Text(Binding::Reactive(name)) => {
                 out.insert(name.clone());

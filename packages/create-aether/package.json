@@ -1,15 +1,32 @@
 {
   "name": "create-aether",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "description": "Scaffold an Aether Wasm UI app",
   "type": "module",
   "bin": {
     "create-aether": "./index.js"
   },
-  "files": ["index.js", "README.md"],
+  "files": [
+    "index.js",
+    "README.md"
+  ],
   "engines": {
     "node": ">=18"
   },
   "license": "MIT",
-  "keywords": ["aether", "wasm", "create", "scaffold", "frontend"]
+  "keywords": [
+    "aether",
+    "wasm",
+    "create",
+    "scaffold",
+    "frontend"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aether-js/aether-framework.git",
+    "directory": "packages/create-aether"
+  }
 }

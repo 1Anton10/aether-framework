@@ -1,0 +1,6 @@
+{
+  "root": ".",
+  "entry": "App.ts",
+  "state": "state.ts",
+  "bindings": "aether.bindings.json"
+}

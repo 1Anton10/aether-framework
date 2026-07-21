@@ -1,6 +1,6 @@
 {
   "name": "vite-plugin-aether",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "description": "Vite plugin for Aether Wasm UI projects",
   "type": "module",
   "license": "MIT",
@@ -8,8 +8,25 @@
   "exports": {
     ".": "./index.js"
   },
+  "files": [
+    "index.js",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "peerDependencies": {
     "vite": ">=5"
   },
-  "keywords": ["aether", "vite", "wasm", "plugin"]
+  "keywords": [
+    "aether",
+    "vite",
+    "wasm",
+    "plugin"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aether-js/aether-framework.git",
+    "directory": "packages/vite-plugin-aether"
+  }
 }

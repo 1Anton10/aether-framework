@@ -5,175 +5,312 @@ export default function App() {
         <a className="tour-logo" href="/">
           Aether
         </a>
-        <span className="tour-pill">Демо · как это работает</span>
-        <a href="/#compare">Сравнение</a>
+        <span className="tour-pill">Demo v0.2</span>
+        <a href="/#compare">Compare</a>
         <a href="/guide.html">Guide</a>
         <a href="/api.html">API</a>
       </header>
 
       <section className="tour-intro">
-        <h1>Что умеет Aether — на живом примере</h1>
+        <h1>Demo</h1>
         <p>
-          Ниже четыре шага. Каждый показывает одну идею фреймворка простыми
-          словами. Нажимайте кнопки и читайте блок «Что произошло».
+          Живой reference runtime: слоты в Wasm, dirty DAG, binary DSM, effects и
+          SSR. Кнопки бьют в реальные эндпоинты (<code>/api/delta</code>,{" "}
+          <code>/api/effect</code>, <code>/api/catalog</code>).
+        </p>
+        <ul className="tour-why-list" id="viz-why">
+          <li>
+            <strong>DOM patch</strong> — изменение слота обновляет один text-node
+          </li>
+          <li>
+            <strong>Dirty DAG</strong> — derived пересчитываются только по рёбрам
+          </li>
+          <li>
+            <strong>Binary DSM</strong> — sync уходит кадром, не JSON-документом
+          </li>
+          <li>
+            <strong>Effects</strong> — suspend → host → resume в слот
+          </li>
+          <li>
+            <strong>SSR</strong> — HTML с <code>data-aether-nid</code> уже в ответе
+          </li>
+        </ul>
+        <p className="tour-runtime" id="viz-runtime">
+          runtime —
         </p>
       </section>
 
       <ol className="tour-steps">
-        <li className="tour-step">
+        <li className="tour-step" data-tour="cart">
           <div className="tour-step-head">
             <span className="tour-num">1</span>
             <div>
-              <h2>Мгновенное обновление без Virtual DOM</h2>
+              <h2>DOM patch</h2>
               <p className="tour-why">
-                В React при клике часто пересобирается дерево компонентов. В
-                Aether клик вызывает Wasm-функцию: меняется одна ячейка памяти,
-                и обновляется только нужный текст на экране.
+                Запись в слот <code>cart</code> в Wasm-памяти патчит один
+                text-node; дерево страницы не пересобирается.
               </p>
             </div>
           </div>
           <div className="tour-demo">
             <div className="tour-demo-ui">
-              <p className="tour-label">Товары в корзине</p>
-              <p className="tour-big">{cart}</p>
+              <p className="tour-label">cart</p>
+              <p className="tour-big" id="viz-cart-n">
+                {cart}
+              </p>
+              <div className="viz-shelf" id="viz-cart-shelf"></div>
               <div className="tour-btns">
-                <button onClick={add_item}>Добавить товар</button>
-                <button onClick={remove_item}>Убрать</button>
-                <button onClick={clear_cart}>Очистить</button>
+                <button onClick={add_item}>+</button>
+                <button onClick={remove_item}>−</button>
+                <button onClick={clear_cart}>Clear</button>
               </div>
             </div>
             <aside className="tour-explain">
-              <h3>Что произошло</h3>
-              <p>
-                Handler <code>add_item</code> в Wasm сделал
-                <code>apply_delta</code> только для слота корзины. Остальная
-                страница не «перерисовалась» целиком.
-              </p>
+              <h3>Статус</h3>
+              <div className="viz-log" id="viz-cart-log">
+                —
+              </div>
             </aside>
           </div>
         </li>
 
-        <li className="tour-step">
+        <li className="tour-step" data-tour="dag">
           <div className="tour-step-head">
             <span className="tour-num">2</span>
             <div>
-              <h2>Автоматический пересчёт зависимых значений</h2>
+              <h2>Dirty DAG</h2>
               <p className="tour-why">
-                Цена и бонусы считаются из корзины по графу зависимостей. Вы не
-                пишете setState для каждого поля — Aether сам помечает «грязные»
-                слоты и обновляет только их.
+                Derived-рёбра <code>cart → total → points</code>: при изменении
+                корзины пересчитывается только эта цепочка.
               </p>
             </div>
           </div>
           <div className="tour-demo">
             <div className="tour-demo-ui">
-              <p className="tour-flow">
-                корзина <strong>{cart}</strong>
-                <span>→</span>
-                сумма ×2 <strong>{total}</strong>
-                <span>→</span>
-                бонусы ×10 <strong>{points}</strong>
-              </p>
-              <p className="tour-hint">
-                Добавьте товар выше — сумма и бонусы изменятся сами.
-              </p>
+              <div className="viz-dag" id="viz-dag">
+                <div className="viz-node" data-k="cart">
+                  <span>cart</span>
+                  <strong id="viz-dag-cart">{cart}</strong>
+                </div>
+                <div className="viz-arrow">→</div>
+                <div className="viz-node" data-k="total">
+                  <span>total</span>
+                  <strong id="viz-dag-total">{total}</strong>
+                </div>
+                <div className="viz-arrow">→</div>
+                <div className="viz-node" data-k="points">
+                  <span>points</span>
+                  <strong id="viz-dag-points">{points}</strong>
+                </div>
+              </div>
             </div>
             <aside className="tour-explain">
-              <h3>Что произошло</h3>
-              <p>
-                Это derived DAG: <code>cart → total → points</code>. Нет
-                reconcile всего UI — только цепочка затронутых значений.
-              </p>
+              <h3>Статус</h3>
+              <div className="viz-log" id="viz-dag-log">
+                —
+              </div>
             </aside>
           </div>
         </li>
 
-        <li className="tour-step">
+        <li className="tour-step" data-tour="dsm">
           <div className="tour-step-head">
             <span className="tour-num">3</span>
             <div>
-              <h2>Синхронизация с сервером крошечными байтами</h2>
+              <h2>Binary DSM</h2>
               <p className="tour-why">
-                Обычно SPA шлёт JSON. Aether шлёт бинарную дельту: номер слота +
-                4 байта значения (~12 байт). Откройте Network →
-                <code>/api/delta</code>.
+                <code>POST /api/delta</code> отправляет бинарный кадр дельты;
+                справа — размер ответа сервера (оценка JSON рядом для сравнения).
               </p>
             </div>
           </div>
           <div className="tour-demo">
             <div className="tour-demo-ui">
-              <p className="tour-label">Корзина на сервере (после sync)</p>
-              <p className="tour-big">{cart}</p>
+              <p className="tour-label">cart после sync</p>
+              <p className="tour-big" id="viz-sync-n">
+                {cart}
+              </p>
               <div className="tour-btns">
-                <button onClick={sync_cart}>Синхронизировать +1 на сервер</button>
+                <button onClick={sync_cart} id="btn-sync">
+                  Sync → /api/delta
+                </button>
               </div>
-              <p className="tour-wire" id="tour-wire">
-                Нажмите sync — здесь появится размер ответа.
+              <div className="viz-packets" id="viz-packets">
+                <div className="viz-packet json" id="viz-pkt-json">
+                  JSON estimate —
+                </div>
+                <div className="viz-packet bin idle" id="viz-pkt-bin">
+                  binary response —
+                </div>
+              </div>
+              <p className="tour-hint" id="viz-dsm-ch">
+                DSM channel —
               </p>
             </div>
             <aside className="tour-explain">
-              <h3>Что произошло</h3>
-              <p>
-                Запрос ушёл как binary DSM, не как JSON-объект. Тот же кодек
-                работает через WebSocket и WebTransport.
-              </p>
+              <h3>Статус</h3>
+              <div className="viz-log" id="viz-dsm-log">
+                —
+              </div>
             </aside>
           </div>
         </li>
 
-        <li className="tour-step">
+        <li className="tour-step" data-tour="effect">
           <div className="tour-step-head">
             <span className="tour-num">4</span>
             <div>
-              <h2>Эффект: запрос к «базе» без блокировки UI</h2>
+              <h2>Effect</h2>
               <p className="tour-why">
-                Кнопка запускает algebraic effect: Wasm делает suspend, хост
-                ходит на сервер, затем resume пишет ответ в слот. Страница не
-                зависает.
+                Wasm suspend → <code>POST /api/effect</code> → resume.
+                Catalog заполняет слот и читает <code>GET /api/catalog</code>;
+                Ping пишет реальный RTT в <code>pingMs</code>.
               </p>
             </div>
           </div>
           <div className="tour-demo">
             <div className="tour-demo-ui">
-              <p className="tour-row">
-                <span>Ответ каталога (db.get)</span>
-                <strong>{catalog}</strong>
-              </p>
-              <p className="tour-row">
-                <span>Пинг сервера, мс (эмуляция)</span>
-                <strong>{pingMs}</strong>
-              </p>
+              <p className="tour-label">pipeline</p>
+              <div className="viz-timeline" id="viz-timeline" aria-hidden="true">
+                <div className="viz-tl-step" data-s="1">
+                  click
+                </div>
+                <div className="viz-tl-step" data-s="2">
+                  suspend
+                </div>
+                <div className="viz-tl-step" data-s="3">
+                  /api/effect
+                </div>
+                <div className="viz-tl-step" data-s="4">
+                  resume
+                </div>
+              </div>
               <div className="tour-btns">
-                <button onClick={load_catalog}>Загрузить каталог</button>
-                <button onClick={measure_ping}>Измерить ping</button>
+                <button onClick={load_catalog} id="btn-catalog">
+                  Catalog
+                </button>
+                <button onClick={measure_ping} id="btn-ping">
+                  Ping RTT
+                </button>
+              </div>
+
+              <div className="viz-metric-row">
+                <div className="viz-metric">
+                  <span>catalog</span>
+                  <strong id="viz-catalog-n">{catalog}</strong>
+                </div>
+                <div className="viz-metric">
+                  <span>pingMs</span>
+                  <strong id="viz-ping-n">{pingMs}</strong>
+                  <em>ms</em>
+                </div>
+              </div>
+
+              <div className="viz-catalog" id="viz-catalog">
+                <p className="viz-empty">Catalog → GET /api/catalog</p>
+              </div>
+              <div className="viz-ping" id="viz-ping">
+                <div className="viz-ping-pulse"></div>
+                <p id="viz-ping-status">Ping: ещё не измеряли</p>
               </div>
             </div>
             <aside className="tour-explain">
-              <h3>Что произошло</h3>
-              <p>
-                Смотрите <code>/api/effect</code> в Network. Это не
-                async/await в компоненте — это perform → handler → resume в
-                память Wasm.
+              <h3>Статус</h3>
+              <div className="viz-log" id="viz-effect-log">
+                —
+              </div>
+            </aside>
+          </div>
+        </li>
+
+        <li className="tour-step" data-tour="ssr">
+          <div className="tour-step-head">
+            <span className="tour-num">5</span>
+            <div>
+              <h2>SSR hydrate</h2>
+              <p className="tour-why">
+                Ответ сервера уже содержит HTML с <code>data-aether-nid</code> и
+                snapshot; клиент цепляется к узлам без очистки <code>#root</code>.
               </p>
+            </div>
+          </div>
+          <div className="tour-demo">
+            <div className="tour-demo-ui">
+              <p className="tour-label">проверка</p>
+              <pre className="viz-ssr" id="viz-ssr">
+                —
+              </pre>
+            </div>
+            <aside className="tour-explain">
+              <h3>Статус</h3>
+              <div className="viz-log" id="viz-ssr-log">
+                —
+              </div>
+            </aside>
+          </div>
+        </li>
+        <li className="tour-step" data-tour="list">
+          <div className="tour-step-head">
+            <span className="tour-num">6</span>
+            <div>
+              <h2>List (map → Loop)</h2>
+              <p className="tour-why">
+                <code>{"{items.map(...)}"}</code> компилируется в{" "}
+                <code>ControlFlow::Loop</code>: длина слота + per-row{" "}
+                <code>{"{item}"}</code> → <code>$item</code>. Ниже —{" "}
+                <code>{"{showPanel && …}"}</code> → Condition.
+              </p>
+            </div>
+          </div>
+          <div className="tour-demo">
+            <div className="tour-demo-ui">
+              <p className="tour-label">
+                items = <strong id="viz-items-n">{items}</strong>
+              </p>
+              <ul className="viz-list" id="viz-list">
+                {items.map((item) => (
+                  <li className="viz-list-item">
+                    row <strong>{item}</strong>
+                  </li>
+                ))}
+              </ul>
+              <div className="tour-btns">
+                <button onClick={add_row}>+ row</button>
+                <button onClick={remove_row}>− row</button>
+              </div>
+              {showPanel && (
+                <p className="tour-label" id="viz-cond-panel">
+                  Condition panel (showPanel)
+                </p>
+              )}
+              <div className="tour-btns">
+                <button type="button" id="btn-toggle-panel" onClick={toggle_panel}>
+                  toggle panel
+                </button>
+              </div>
+            </div>
+            <aside className="tour-explain">
+              <h3>Статус</h3>
+              <div className="viz-log" id="viz-list-log">
+                Loop IR · length slot
+              </div>
             </aside>
           </div>
         </li>
       </ol>
 
       <section className="tour-finale">
-        <h2>И ещё: страница уже пришла с HTML (SSR)</h2>
+        <h2>Дальше</h2>
         <p>
-          View Source / Elements: у корня есть
-          <code>data-aether-ssr="1"</code> и узлы с
-          <code>data-aether-nid</code>. Браузер не «собирает UI с нуля» — он
-          подхватывает серверный HTML и binary snapshot в
-          <code>&lt;script type="aether/snapshot"&gt;</code>.
+          Полный путь разработчика и матрица синтаксисов — в Guide. Сравнение
+          моделей стоимости — на главной.
         </p>
         <p className="tour-finale-links">
-          <a className="tour-cta" href="/#compare">
-            Сравнить с React/Nuxt →
+          <a className="tour-cta" href="/guide.html">
+            Guide
           </a>
-          <a href="/guide.html">Как начать проект</a>
+          <a href="/#compare">Cost model</a>
+          <a href="/api.html">API</a>
         </p>
       </section>
     </div>

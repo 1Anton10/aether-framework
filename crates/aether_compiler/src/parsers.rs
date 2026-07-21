@@ -136,7 +136,8 @@ fn strip_svelte_script(source: &str) -> String {
 }
 
 fn vue_template_to_jsxish(t: &str) -> String {
-    let mut s = t.to_string();
+    let mut s = rewrite_v_for(t);
+    s = rewrite_v_if(&s);
     while let Some(a) = s.find("{{") {
         if let Some(b) = s[a..].find("}}") {
             let inner = s[a + 2..a + b].trim().to_string();
@@ -153,7 +154,8 @@ fn vue_template_to_jsxish(t: &str) -> String {
 }
 
 fn svelte_to_jsxish(t: &str) -> String {
-    let mut s = t.to_string();
+    let mut s = rewrite_svelte_each(t);
+    s = rewrite_svelte_if(&s);
     s = s.replace("on:click=", "onClick=");
     s = s.replace("on:submit=", "onSubmit=");
     s = s.replace(" class=", " className=");
@@ -168,7 +170,8 @@ fn html_to_jsxish(t: &str) -> String {
 }
 
 fn angular_to_jsxish(t: &str) -> String {
-    let mut s = t.to_string();
+    let mut s = rewrite_ng_for(t);
+    s = rewrite_ng_if(&s);
     // {{ expr }} → {expr}
     while let Some(a) = s.find("{{") {
         if let Some(b) = s[a..].find("}}") {
@@ -183,7 +186,7 @@ fn angular_to_jsxish(t: &str) -> String {
     s = replace_angular_event(&s, "submit", "onSubmit");
     // [title]="x" → title={x}
     s = replace_angular_prop(&s);
-    // strip *ngIf / *ngFor structural attrs (keep children)
+    // strip leftover *ngIf (lists already rewritten)
     s = strip_attr_prefix(&s, "*ngIf");
     s = strip_attr_prefix(&s, "*ngFor");
     s = s.replace(" class=", " className=");
@@ -386,6 +389,299 @@ fn strip_attr_prefix(s: &str, attr: &str) -> String {
     out
 }
 
+/// `v-for="item in items"` → `{items.map((item) => ( <el/> ))}`
+fn rewrite_v_for(s: &str) -> String {
+    rewrite_attr_loop(s, "v-for", parse_in_of_binding)
+}
+
+/// `v-if="visible"` → `{visible && ( <el/> )}`
+fn rewrite_v_if(s: &str) -> String {
+    rewrite_attr_condition(s, "v-if")
+}
+
+/// `*ngFor="let item of items"` → `{items.map((item) => ( <el/> ))}`
+fn rewrite_ng_for(s: &str) -> String {
+    rewrite_attr_loop(s, "*ngFor", parse_ng_for_binding)
+}
+
+/// `*ngIf="visible"` → `{visible && ( <el/> )}`
+fn rewrite_ng_if(s: &str) -> String {
+    rewrite_attr_condition(s, "*ngIf")
+}
+
+fn parse_in_of_binding(val: &str) -> Option<(String, String)> {
+    let val = val.trim();
+    // item in items | (item, i) in items | item of items
+    for sep in [" in ", " of "] {
+        if let Some((left, right)) = val.split_once(sep) {
+            let item = left
+                .trim()
+                .trim_start_matches('(')
+                .split(',')
+                .next()?
+                .trim()
+                .to_string();
+            let coll = right.trim().to_string();
+            if !item.is_empty() && !coll.is_empty() {
+                return Some((item, coll));
+            }
+        }
+    }
+    None
+}
+
+fn parse_ng_for_binding(val: &str) -> Option<(String, String)> {
+    let val = val.trim();
+    let rest = val.strip_prefix("let ")?.trim();
+    let (item, coll) = rest.split_once(" of ").or_else(|| rest.split_once(" in "))?;
+    let item = item.trim().to_string();
+    let coll = coll.trim().to_string();
+    if item.is_empty() || coll.is_empty() {
+        return None;
+    }
+    Some((item, coll))
+}
+
+fn rewrite_attr_loop(
+    s: &str,
+    attr: &str,
+    parse_binding: fn(&str) -> Option<(String, String)>,
+) -> String {
+    let pattern = format!("{}=\"", attr);
+    let mut out = String::new();
+    let mut rest = s;
+    while let Some(attr_i) = rest.find(&pattern) {
+        let val_start = attr_i + pattern.len();
+        let Some(val_end) = rest[val_start..].find('"') else {
+            out.push_str(rest);
+            return out;
+        };
+        let val = &rest[val_start..val_start + val_end];
+        let Some((item, coll)) = parse_binding(val) else {
+            // skip this attr occurrence
+            out.push_str(&rest[..val_start + val_end + 1]);
+            rest = &rest[val_start + val_end + 1..];
+            continue;
+        };
+        let Some(tag_start) = rest[..attr_i].rfind('<') else {
+            out.push_str(&rest[..val_start + val_end + 1]);
+            rest = &rest[val_start + val_end + 1..];
+            continue;
+        };
+        let Some(elem_len) = element_span_len(&rest[tag_start..]) else {
+            out.push_str(&rest[..val_start + val_end + 1]);
+            rest = &rest[val_start + val_end + 1..];
+            continue;
+        };
+        let elem_end = tag_start + elem_len;
+        let mut elem = rest[tag_start..elem_end].to_string();
+        elem = strip_attr_prefix(&elem, attr);
+        out.push_str(&rest[..tag_start]);
+        out.push('{');
+        out.push_str(&coll);
+        out.push_str(".map((");
+        out.push_str(&item);
+        out.push_str(") => (\n");
+        out.push_str(elem.trim());
+        out.push_str("\n))}");
+        rest = &rest[elem_end..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// `v-if="visible"` / `*ngIf="visible"` → `{visible && ( <el/> )}`
+fn rewrite_attr_condition(s: &str, attr: &str) -> String {
+    let pattern = format!("{}=\"", attr);
+    let mut out = String::new();
+    let mut rest = s;
+    while let Some(attr_i) = rest.find(&pattern) {
+        let val_start = attr_i + pattern.len();
+        let Some(val_end) = rest[val_start..].find('"') else {
+            out.push_str(rest);
+            return out;
+        };
+        let cond = rest[val_start..val_start + val_end].trim().to_string();
+        if cond.is_empty() {
+            out.push_str(&rest[..val_start + val_end + 1]);
+            rest = &rest[val_start + val_end + 1..];
+            continue;
+        }
+        let Some(tag_start) = rest[..attr_i].rfind('<') else {
+            out.push_str(&rest[..val_start + val_end + 1]);
+            rest = &rest[val_start + val_end + 1..];
+            continue;
+        };
+        let Some(elem_len) = element_span_len(&rest[tag_start..]) else {
+            out.push_str(&rest[..val_start + val_end + 1]);
+            rest = &rest[val_start + val_end + 1..];
+            continue;
+        };
+        let elem_end = tag_start + elem_len;
+        let mut elem = rest[tag_start..elem_end].to_string();
+        elem = strip_attr_prefix(&elem, attr);
+        out.push_str(&rest[..tag_start]);
+        out.push('{');
+        out.push_str(&cond);
+        out.push_str(" && (\n");
+        out.push_str(elem.trim());
+        out.push_str("\n)}");
+        rest = &rest[elem_end..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// `{#if visible}…{/if}` → `{visible && (…)}`
+fn rewrite_svelte_if(s: &str) -> String {
+    let mut out = String::new();
+    let mut rest = s;
+    while let Some(start) = rest.find("{#if ") {
+        out.push_str(&rest[..start]);
+        let after = start + "{#if ".len();
+        let Some(header_end) = rest[after..].find('}') else {
+            out.push_str(&rest[start..]);
+            return out;
+        };
+        let cond = rest[after..after + header_end].trim();
+        let body_start = after + header_end + 1;
+        // Prefer {/if}; allow {:else} by taking only before else
+        let end_marker = if let Some(e) = rest[body_start..].find("{:else") {
+            let else_abs = body_start + e;
+            if let Some(close) = rest[else_abs..].find("{/if}") {
+                else_abs + close + "{/if}".len()
+            } else {
+                out.push_str(&rest[start..]);
+                return out;
+            }
+        } else if let Some(close) = rest[body_start..].find("{/if}") {
+            body_start + close + "{/if}".len()
+        } else {
+            out.push_str(&rest[start..]);
+            return out;
+        };
+        let body_end = rest[body_start..end_marker]
+            .find("{:else")
+            .map(|i| body_start + i)
+            .unwrap_or(end_marker - "{/if}".len());
+        let body = rest[body_start..body_end].trim();
+        out.push('{');
+        out.push_str(cond);
+        out.push_str(" && (\n");
+        out.push_str(body);
+        out.push_str("\n)}");
+        rest = &rest[end_marker..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Length of one HTML/JSX element starting at `s[0] == '<'`.
+fn element_span_len(s: &str) -> Option<usize> {
+    if !s.starts_with('<') || s.starts_with("</") {
+        return None;
+    }
+    let name_end = s[1..]
+        .find(|c: char| c.is_whitespace() || c == '>' || c == '/')
+        .map(|i| i + 1)?;
+    let tag = &s[1..name_end];
+    if tag.is_empty() {
+        return None;
+    }
+    // Find end of opening tag
+    let mut i = name_end;
+    let bytes = s.as_bytes();
+    let mut in_quote: Option<u8> = None;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if let Some(q) = in_quote {
+            if b == q {
+                in_quote = None;
+            }
+            i += 1;
+            continue;
+        }
+        if b == b'"' || b == b'\'' {
+            in_quote = Some(b);
+            i += 1;
+            continue;
+        }
+        if b == b'>' {
+            // self-closing?
+            let self_close = i > 0 && bytes[i - 1] == b'/';
+            if self_close {
+                return Some(i + 1);
+            }
+            i += 1;
+            break;
+        }
+        i += 1;
+    }
+    // Match nested close tag
+    let open = format!("<{}", tag);
+    let close = format!("</{}>", tag);
+    let mut depth = 1i32;
+    while i < s.len() {
+        if s[i..].starts_with(&close) {
+            depth -= 1;
+            if depth == 0 {
+                return Some(i + close.len());
+            }
+            i += close.len();
+            continue;
+        }
+        if s[i..].starts_with(&open) {
+            let after = i + open.len();
+            let next = s.as_bytes().get(after).copied().unwrap_or(0);
+            if next.is_ascii_whitespace() || next == b'>' || next == b'/' {
+                depth += 1;
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// `{#each items as item}…{/each}` → `{items.map((item) => (…))}`
+fn rewrite_svelte_each(s: &str) -> String {
+    let mut out = String::new();
+    let mut rest = s;
+    while let Some(start) = rest.find("{#each ") {
+        out.push_str(&rest[..start]);
+        let after = start + "{#each ".len();
+        let Some(header_end) = rest[after..].find('}') else {
+            out.push_str(&rest[start..]);
+            return out;
+        };
+        let header = rest[after..after + header_end].trim();
+        let body_start = after + header_end + 1;
+        let Some(end_rel) = rest[body_start..].find("{/each}") else {
+            out.push_str(&rest[start..]);
+            return out;
+        };
+        let body = rest[body_start..body_start + end_rel].trim();
+        let end = body_start + end_rel + "{/each}".len();
+        // items as item | items as item, i
+        let Some((coll, right)) = header.split_once(" as ") else {
+            out.push_str(&rest[start..end]);
+            rest = &rest[end..];
+            continue;
+        };
+        let item = right.split(',').next().unwrap_or(right).trim();
+        let coll = coll.trim();
+        out.push('{');
+        out.push_str(coll);
+        out.push_str(".map((");
+        out.push_str(item);
+        out.push_str(") => (\n");
+        out.push_str(body);
+        out.push_str("\n))}");
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
 fn replace_attr_quotes(s: &str, from: &str, to: &str) -> String {
     let mut out = String::new();
     let mut rest = s;
@@ -558,5 +854,215 @@ export default function App() {
             b.edges.len(),
             b.nodes.len()
         );
+    }
+}
+
+#[cfg(test)]
+mod map_tests {
+    use aether_ir::{AppBindings, ControlFlow, HandlerBinding};
+    use crate::parse_jsx_with_bindings;
+
+    #[test]
+    fn parse_items_map_to_loop() {
+        let src = r#"
+export default function App() {
+  return (
+    <ul>
+      {items.map((item) => (
+        <li className="row">row</li>
+      ))}
+    </ul>
+  );
+}
+"#;
+        let mut bindings = AppBindings::default();
+        bindings.handlers.insert(
+            "inc_items".into(),
+            HandlerBinding {
+                op: "inc".into(),
+                slot: Some("items".into()),
+                delta: Some(1),
+                server: false,
+                effect: None,
+                into: None,
+            },
+        );
+        let prog = parse_jsx_with_bindings(src, &bindings).expect("parse");
+        let loops: Vec<_> = prog
+            .nodes
+            .iter()
+            .filter(|n| matches!(n.control_flow, ControlFlow::Loop(_, _)))
+            .collect();
+        assert!(
+            !loops.is_empty(),
+            "expected Loop control_flow, nodes={:?}",
+            prog.nodes
+                .iter()
+                .map(|n| format!("{:?} {:?}", n.id, n.control_flow))
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            prog.slots.iter().any(|s| s.name == "items"),
+            "items slot missing: {:?}",
+            prog.slots.iter().map(|s| &s.name).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn vue_v_for_to_loop() {
+        let vue = r#"
+<template>
+  <ul>
+    <li v-for="item in items" class="row">row</li>
+  </ul>
+</template>
+"#;
+        let mut bindings = AppBindings::default();
+        bindings.handlers.insert(
+            "inc_items".into(),
+            HandlerBinding {
+                op: "inc".into(),
+                slot: Some("items".into()),
+                delta: Some(1),
+                server: false,
+                effect: None,
+                into: None,
+            },
+        );
+        let prog = crate::parsers::parse_vue_sfc(vue, &bindings).expect("vue");
+        assert!(
+            prog.nodes
+                .iter()
+                .any(|n| matches!(n.control_flow, ControlFlow::Loop(_, _))),
+            "expected Loop from v-for"
+        );
+    }
+
+    #[test]
+    fn svelte_each_to_loop() {
+        let src = r#"
+<ul>
+{#each items as item}
+  <li class="row">row</li>
+{/each}
+</ul>
+"#;
+        let mut bindings = AppBindings::default();
+        bindings.handlers.insert(
+            "inc_items".into(),
+            HandlerBinding {
+                op: "inc".into(),
+                slot: Some("items".into()),
+                delta: Some(1),
+                server: false,
+                effect: None,
+                into: None,
+            },
+        );
+        let prog = crate::parsers::parse_svelte(src, &bindings).expect("svelte");
+        assert!(
+            prog.nodes
+                .iter()
+                .any(|n| matches!(n.control_flow, ControlFlow::Loop(_, _))),
+            "expected Loop from #each"
+        );
+    }
+
+    #[test]
+    fn angular_ng_for_to_loop() {
+        let ng = r#"
+<ul>
+  <li *ngFor="let item of items" class="row">row</li>
+</ul>
+"#;
+        let mut bindings = AppBindings::default();
+        bindings.handlers.insert(
+            "inc_items".into(),
+            HandlerBinding {
+                op: "inc".into(),
+                slot: Some("items".into()),
+                delta: Some(1),
+                server: false,
+                effect: None,
+                into: None,
+            },
+        );
+        let prog = crate::parsers::parse_angular_template(ng, &bindings).expect("angular");
+        assert!(
+            prog.nodes
+                .iter()
+                .any(|n| matches!(n.control_flow, ControlFlow::Loop(_, _))),
+            "expected Loop from *ngFor"
+        );
+    }
+
+    #[test]
+    fn jsx_and_condition() {
+        let src = r#"
+export default function App() {
+  return (
+    <div>
+      {visible && (
+        <p className="panel">hi</p>
+      )}
+    </div>
+  );
+}
+"#;
+        let mut bindings = AppBindings::default();
+        bindings.handlers.insert(
+            "toggle_visible".into(),
+            HandlerBinding {
+                op: "inc".into(),
+                slot: Some("visible".into()),
+                delta: Some(1),
+                server: false,
+                effect: None,
+                into: None,
+            },
+        );
+        let prog = parse_jsx_with_bindings(src, &bindings).expect("parse");
+        assert!(
+            prog.nodes
+                .iter()
+                .any(|n| matches!(n.control_flow, ControlFlow::Condition(_))),
+            "expected Condition control_flow"
+        );
+    }
+
+    #[test]
+    fn map_item_becomes_expression() {
+        let src = r#"
+export default function App() {
+  return (
+    <ul>
+      {items.map((item) => (
+        <li>{item}</li>
+      ))}
+    </ul>
+  );
+}
+"#;
+        let mut bindings = AppBindings::default();
+        bindings.handlers.insert(
+            "inc_items".into(),
+            HandlerBinding {
+                op: "inc".into(),
+                slot: Some("items".into()),
+                delta: Some(1),
+                server: false,
+                effect: None,
+                into: None,
+            },
+        );
+        let prog = parse_jsx_with_bindings(src, &bindings).expect("parse");
+        use aether_ir::{Binding, NodeType};
+        let has_item = prog.nodes.iter().any(|n| {
+            matches!(
+                &n.node_type,
+                NodeType::Text(Binding::Expression(e)) if e == "$item"
+            )
+        });
+        assert!(has_item, "expected $item Expression binding in loop body");
     }
 }

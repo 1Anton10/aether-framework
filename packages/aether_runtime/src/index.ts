@@ -194,15 +194,9 @@ class DsmTransport {
   }
 
   async sendDeltas(deltas: Array<[number, number]>, action?: string): Promise<Uint8Array> {
+    // Always HTTP for mutate round-trip so the client gets the server binary
+    // response (byte size + applied deltas). WS/WT remain receive channels.
     const body = encodeDeltas(deltas);
-    if (this.wtWriter) {
-      await this.wtWriter.write(body);
-      return body;
-    }
-    if (this.ready && this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(body);
-      return body;
-    }
     const res = await fetch("/api/delta", {
       method: "POST",
       headers: {
@@ -211,7 +205,20 @@ class DsmTransport {
       },
       body,
     });
-    return new Uint8Array(await res.arrayBuffer());
+    const out = new Uint8Array(await res.arrayBuffer());
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("aether:dsm", {
+          detail: {
+            action: action || "delta",
+            reqBytes: body.byteLength,
+            resBytes: out.byteLength,
+            transport: "http",
+          },
+        })
+      );
+    }
+    return out;
   }
 
   async perform(
@@ -219,32 +226,28 @@ class DsmTransport {
     resumeSlot: number,
     payload: number
   ): Promise<Array<[number, number]>> {
+    // Effects always use HTTP request/response so the host can return
+    // X-Aether-Effect-Mode (e.g. rtt) and the client can measure wall-clock RTT.
+    // WS/WT are for DSM deltas only — fire-and-forget there drops RTT to 0.
     const body = encodeEffectRequest(effect, resumeSlot, payload);
-    if (this.wtWriter) {
-      const framed = new Uint8Array(1 + body.length);
-      framed[0] = 0xef;
-      framed.set(body, 1);
-      await this.wtWriter.write(framed);
-      return [[resumeSlot, payload]];
-    }
-    if (this.ready && this.ws && this.ws.readyState === WebSocket.OPEN) {
-      const framed = new Uint8Array(1 + body.length);
-      framed[0] = 0xef;
-      framed.set(body, 1);
-      this.ws.send(framed);
-      return [[resumeSlot, payload]];
-    }
+    const t0 = performance.now();
     const res = await fetch("/api/effect", {
       method: "POST",
       headers: { "Content-Type": "application/octet-stream" },
       body,
     });
-    return decodeDeltas(new Uint8Array(await res.arrayBuffer()));
+    const buf = new Uint8Array(await res.arrayBuffer());
+    const mode = (res.headers.get("X-Aether-Effect-Mode") || "value").toLowerCase();
+    if (mode === "rtt") {
+      const ms = Math.max(1, Math.round(performance.now() - t0));
+      return [[resumeSlot, ms]];
+    }
+    return decodeDeltas(buf);
   }
 }
 
 export class AetherRuntime {
-  private program: AetherProgram | null = null;
+  program: AetherProgram | null = null;
   private memory: WebAssembly.Memory | null = null;
   private domHandles = new Map<number, Node>();
   private exports: Record<string, Function> = {};
@@ -364,7 +367,17 @@ export class AetherRuntime {
       if (usedGc) {
         console.warn("[Aether] WasmGC instantiate failed, falling back to linear", err);
         const wasmRes = await fetch("/app.wasm");
-        ({ instance } = await WebAssembly.instantiate(await wasmRes.arrayBuffer(), imports));
+        try {
+          ({ instance } = await WebAssembly.instantiate(await wasmRes.arrayBuffer(), imports));
+        } catch (err2: any) {
+          const msg = String(err2?.message || err2);
+          if (msg.includes("Content Security Policy") || msg.includes("unsafe-eval")) {
+            throw new Error(
+              "[Aether] WebAssembly blocked by CSP. Add 'wasm-unsafe-eval' to script-src (see docs/ABI.md §9)."
+            );
+          }
+          throw err2;
+        }
         usedGc = false;
       } else {
         throw err;
@@ -394,6 +407,9 @@ export class AetherRuntime {
     this.queue = new DirtyQueue((slots) => this.flushDirty(slots));
     this.mount();
     this.setupListeners();
+    if (typeof globalThis !== "undefined") {
+      (globalThis as any).__AETHER__ = this;
+    }
   }
 
   private connectLiveReload() {
@@ -540,6 +556,81 @@ export class AetherRuntime {
           }
         }
       }
+      const slot = this.program.slots.find((s) => nid(s.id) === slotId);
+      if (slot) {
+        for (const [tid, meta] of this.loopRoots) {
+          if (meta.collection === slot.name) this.syncLoop(tid);
+        }
+        for (const [tid, meta] of this.condRoots) {
+          if (meta.slot === slot.name) this.syncCond(tid);
+        }
+      }
+    }
+  }
+
+  private loopRoots = new Map<
+    number,
+    { parent: Element; collection: string; instances: Node[]; templateId: number }
+  >();
+
+  private condRoots = new Map<
+    number,
+    { parent: Element; slot: string; instance: Node | null; templateId: number }
+  >();
+
+  private controlFlow(node: any): { kind: string; collection?: string; item?: string } {
+    const cf = node?.control_flow;
+    if (!cf || cf === "None") return { kind: "None" };
+    if (cf.Loop) {
+      const [collection, item] = cf.Loop as [string, string];
+      return { kind: "Loop", collection, item };
+    }
+    if (cf.Condition) return { kind: "Condition", collection: cf.Condition };
+    return { kind: "None" };
+  }
+
+  private cloneTemplate(templateId: number, loopIndex = -1): Node | null {
+    return this.buildNodeInner(templateId, true, loopIndex);
+  }
+
+  /** Normative max list clones (ABI §6). */
+  static readonly LOOP_CAP = 64;
+
+  private syncLoop(templateId: number) {
+    const meta = this.loopRoots.get(templateId);
+    if (!meta || !this.program) return;
+    const slot = this.program.slots.find((s) => s.name === meta.collection);
+    const n = Math.max(
+      0,
+      Math.min(slot ? this.slotValue(nid(slot.id)) : 0, AetherRuntime.LOOP_CAP)
+    );
+    while (meta.instances.length < n) {
+      const idx = meta.instances.length;
+      const clone = this.cloneTemplate(templateId, idx);
+      if (!clone) break;
+      meta.parent.appendChild(clone);
+      meta.instances.push(clone);
+    }
+    while (meta.instances.length > n) {
+      const last = meta.instances.pop()!;
+      last.parentNode?.removeChild(last);
+    }
+  }
+
+  private syncCond(templateId: number) {
+    const meta = this.condRoots.get(templateId);
+    if (!meta || !this.program) return;
+    const slot = this.program.slots.find((s) => s.name === meta.slot);
+    const show = slot ? this.slotValue(nid(slot.id)) !== 0 : false;
+    if (show && !meta.instance) {
+      const clone = this.cloneTemplate(templateId, -1);
+      if (clone) {
+        meta.parent.appendChild(clone);
+        meta.instance = clone;
+      }
+    } else if (!show && meta.instance) {
+      meta.instance.parentNode?.removeChild(meta.instance);
+      meta.instance = null;
     }
   }
 
@@ -581,10 +672,68 @@ export class AetherRuntime {
       rootEl.replaceChildren();
       const built = this.buildNode(nid(this.program!.root));
       if (built) rootEl.appendChild(built);
+      return;
+    }
+    // Register Loop / Condition regions from SSR, then sync.
+    this.adoptControlFlow(nid(this.program!.root));
+  }
+
+  /** Walk IR after hydrate: adopt SSR Loop/Condition clones and sync. */
+  private adoptControlFlow(nodeId: number) {
+    if (!this.program) return;
+    const node = this.program.nodes[nodeId];
+    if (!node) return;
+    const parentHandle = this.domHandles.get(nodeId);
+    for (const childIdRaw of node.children || []) {
+      const childId = nid(childIdRaw);
+      const childNode = this.program.nodes[childId];
+      const cf = this.controlFlow(childNode);
+      if (cf.kind === "Loop" && cf.collection && parentHandle instanceof Element) {
+        const instances: Node[] = [];
+        for (const child of Array.from(parentHandle.childNodes)) {
+          if (child.nodeType !== Node.ELEMENT_NODE) continue;
+          const el = child as Element;
+          if (el.getAttribute("data-aether-nid") === String(childId)) {
+            instances.push(child);
+          }
+        }
+        this.loopRoots.set(childId, {
+          parent: parentHandle,
+          collection: cf.collection,
+          instances,
+          templateId: childId,
+        });
+        this.syncLoop(childId);
+        continue;
+      }
+      if (cf.kind === "Condition" && cf.collection && parentHandle instanceof Element) {
+        let instance: Node | null = null;
+        for (const child of Array.from(parentHandle.childNodes)) {
+          if (child.nodeType !== Node.ELEMENT_NODE) continue;
+          const el = child as Element;
+          if (el.getAttribute("data-aether-nid") === String(childId)) {
+            instance = child;
+            break;
+          }
+        }
+        this.condRoots.set(childId, {
+          parent: parentHandle,
+          slot: cf.collection,
+          instance,
+          templateId: childId,
+        });
+        this.syncCond(childId);
+        continue;
+      }
+      this.adoptControlFlow(childId);
     }
   }
 
   private buildNode(id: number): Node | null {
+    return this.buildNodeInner(id, false, -1);
+  }
+
+  private buildNodeInner(id: number, asClone: boolean, loopIndex: number): Node | null {
     if (!this.program) return null;
     const node = this.program.nodes[id];
     if (!node) return null;
@@ -594,12 +743,14 @@ export class AetherRuntime {
       const binding = nt.Text;
       let text = "";
       if (binding.Static !== undefined) text = binding.Static;
-      else if (binding.Reactive !== undefined) {
+      else if (binding.Expression === "$item" || binding.Expression?.startsWith?.("$item")) {
+        text = loopIndex >= 0 ? String(loopIndex + 1) : "";
+      } else if (binding.Reactive !== undefined) {
         const slot = this.program.slots.find((s) => s.name === binding.Reactive);
         text = slot ? String(this.slotValue(nid(slot.id))) : "";
       }
       const tn = document.createTextNode(text);
-      this.domHandles.set(id, tn);
+      if (!asClone) this.domHandles.set(id, tn);
       return tn;
     }
 
@@ -610,7 +761,9 @@ export class AetherRuntime {
         for (const [k, v] of Object.entries(props) as [string, any][]) {
           const attr = k === "className" ? "class" : k;
           if (v.Static !== undefined) el.setAttribute(attr, v.Static);
-          else if (v.Reactive !== undefined) {
+          else if (v.Expression === "$item") {
+            if (loopIndex >= 0) el.setAttribute(attr, String(loopIndex + 1));
+          } else if (v.Reactive !== undefined) {
             const slot = this.program.slots.find((s) => s.name === v.Reactive);
             if (slot) el.setAttribute(attr, String(this.slotValue(nid(slot.id))));
           }
@@ -625,9 +778,32 @@ export class AetherRuntime {
           if (op?.Perform) el.setAttribute("data-ae-effect", "1");
         }
       }
-      this.domHandles.set(id, el);
-      for (const childId of node.children || []) {
-        const child = this.buildNode(nid(childId));
+      if (!asClone) this.domHandles.set(id, el);
+      for (const childIdRaw of node.children || []) {
+        const childId = nid(childIdRaw);
+        const childNode = this.program.nodes[childId];
+        const childCf = this.controlFlow(childNode);
+        if (childCf.kind === "Loop" && childCf.collection && !asClone) {
+          this.loopRoots.set(childId, {
+            parent: el,
+            collection: childCf.collection,
+            instances: [],
+            templateId: childId,
+          });
+          this.syncLoop(childId);
+          continue;
+        }
+        if (childCf.kind === "Condition" && childCf.collection && !asClone) {
+          this.condRoots.set(childId, {
+            parent: el,
+            slot: childCf.collection,
+            instance: null,
+            templateId: childId,
+          });
+          this.syncCond(childId);
+          continue;
+        }
+        const child = this.buildNodeInner(childId, asClone, loopIndex);
         if (child) el.appendChild(child);
       }
       return el;
@@ -653,8 +829,9 @@ export class AetherRuntime {
   private async runPerform(effect: string, resumeSlot: number, payload: number) {
     const deltas = await this.dsm.perform(effect, resumeSlot, payload);
     for (const [s, v] of deltas) {
-      if (this.exports.aether_resume) this.exports.aether_resume(s, v);
-      else this.applyHostDelta(s, v);
+      // Always go through applyHostDelta so memory + dirty DOM queue stay in sync.
+      // aether_resume alone updates Wasm memory without patching text nodes.
+      this.applyHostDelta(s, v);
     }
   }
 

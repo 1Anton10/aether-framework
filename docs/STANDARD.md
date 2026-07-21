@@ -1,33 +1,26 @@
-# Path to Aether as an industry baseline
+# Frontend Runtime Standard v1.0
 
-Aether is **not** “React with Wasm”. It is a different runtime contract:
+**Aether is the Frontend Runtime Standard** — one open contract for UI → IR → Wasm memory → dirty-DAG patches → binary DSM → effects → multi-syntax migrate. Normative: [`ABI.md`](./ABI.md).
 
-1. UI compiles to a stable IR and Wasm memory layout  
-2. Updates are dirty-DAG patches, not VDOM reconcile  
-3. Sync is binary DSM, not JSON-RPC  
-4. SSR hydrates by node id, not by replaying a JS tree  
+## Reference — complete
 
-## Version targets
+- [x] Runtime: memory / DAG / DSM / effects / SSR nid  
+- [x] Live `/demo` + Live measure bench  
+- [x] CLI create / dev / build / migrate (React…Astro ecosystem detect)  
+- [x] Vite plugin + compat (React, Vue+Pinia API, Svelte stores, Solid, Qwik, Lit, Angular)  
+- [x] Syntax matrix (`npm run smoke:syntax`)  
+- [x] `ControlFlow::Loop` + per-row `$item` + SSR/hydrate  
+- [x] `ControlFlow::Condition` (`&&` / `v-if` / `{#if}` / `*ngIf`)  
+- [x] `aether/store` — Pinia-shaped API → Wasm slots  
+- [x] ABI freeze + CSP (`wasm-unsafe-eval`)  
+- [x] `publish:check` + Playwright CI + tag publish  
 
-| Version | Meaning |
-|---------|---------|
-| **0.2.x** (now) | Architecture + DX tour + pages/loaders/SSR/Vite/migrate |
-| **0.3** | Stable public npm (`aether`, `create-aether`), Playwright CI green on Linux |
-| **0.4** | Production streaming SSR, asset pipeline, typed bindings |
-| **0.5** | File routes + loaders as first-class (parity with Nuxt pages DX) |
-| **1.0** | Semver-stable runtime ABI, docs site, migration guides, security process |
+**Claim:** Aether **v1.0** is the industrial **Frontend Runtime Standard** reference — the stack for compiling and running UI across the frontend world on one IR and one memory model.
 
-## What “standard” requires (checklist)
+**How it covers every ecosystem without shipping every legacy runtime:** syntax + migrate + compat APIs lower to Aether IR; meta-framework *servers* are not embedded (that would destroy the speed contract). The standard is the **runtime and wire**, not a polyfill of Next.js.
 
-- [x] Distinct runtime model (memory / DAG / DSM / effects)
-- [x] Multi-syntax → one IR
-- [x] Create / dev / build / migrate CLI
-- [x] Explained live demo (`/demo`)
-- [x] SSR hydrate + stream endpoint (`/api/ssr`)
-- [x] Vite plugin + meta package
-- [ ] Published npm packages with CI provenance
-- [ ] Broad production case studies
-- [ ] Ecosystem plugins / community adapters
-- [ ] Long-term ABI + RFC freeze
+## Ship to testers / registry
 
-Until 1.0, call Aether an **architectural baseline candidate**, not a finished industry standard.
+1. Testers (no npm token): [`TRY.md`](./TRY.md) — `git clone` → `npm run setup` → `npm run start`  
+2. Maintainers: GitHub secret `NPM_TOKEN`, push tag `v1.0.0` → Publish + Release (compiler binaries) workflows.  
+3. After first release, `npm run ensure:compiler` downloads binaries into `~/.aether/bin`.

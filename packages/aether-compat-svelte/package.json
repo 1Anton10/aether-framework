@@ -1,0 +1,19 @@
+{
+  "name": "aether-compat-svelte",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Svelte import shim for Aether migrate",
+  "license": "MIT",
+  "main": "index.js",
+  "files": [
+    "*.js",
+    "package.json"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aether-js/aether-framework.git"
+  }
+}

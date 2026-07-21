@@ -1,74 +1,76 @@
 # Aether
 
-**Wasm UI framework** — compile UI → IR → memory → DOM patches → binary DSM.
+**Frontend Runtime Standard v1.0** — compile UI → IR → Wasm memory → dirty-DAG DOM patches → binary DSM.
 
 [![CI](https://github.com/aether-js/aether-framework/actions/workflows/ci.yml/badge.svg)](https://github.com/aether-js/aether-framework/actions/workflows/ci.yml)
 
-> **Status: v0.1.0 alpha** — core pipeline works; not a drop-in Next/Nuxt replacement yet.
+> **Status: v1.0 — industrial Frontend Runtime Standard** ([`docs/ABI.md`](docs/ABI.md), [`docs/STANDARD.md`](docs/STANDARD.md)).  
+> Russian: [`README.ru.md`](README.ru.md)
 
-## Why Aether
+## Why the world needs a new stack
 
-| Classic SPA | Aether |
-|-------------|--------|
-| Virtual DOM reconcile | Wasm memory + dirty DAG |
-| JSON hydration | Binary snapshot resume |
-| JSON-RPC sync | Binary DSM deltas |
-| One framework lock-in | Many syntaxes → one IR |
+React, Vue, Angular, Svelte and their meta-frameworks optimized for **developer ecosystem velocity**. The cost is paid every frame and every sync: JS heap state, VDOM or large client bundles, JSON wires, hydrate-by-replaying.
 
-## Quick start
+Aether is the **runtime standard** underneath any syntax:
+
+| | Legacy SPA stack | Aether 1.0 |
+|--|------------------|------------|
+| State | JS + Pinia/Redux/… | **Wasm slots** (+ `aether/store` Pinia-shaped API) |
+| Updates | Full / broad reconcile | **Dirty DAG** |
+| Boot | JS tree hydrate | **Binary snapshot** + nid |
+| Sync | JSON | **Binary DSM** (12 B / i32) |
+| Control flow | Framework-specific | **Loop + Condition** in IR |
+| Syntax | One runtime locked in | **All major syntaxes → one IR** |
+
+## Victory criteria (shipped)
+
+1. One IR / one memory / one wire for the frontend world  
+2. Real Live measure (not a formula) on the homepage  
+3. Lists with per-row `$item`, conditions (`&&` / `v-if` / `{#if}` / `*ngIf`)  
+4. Store API that writes Wasm (Pinia-shaped, not a second heap)  
+5. Migrate detect: React, Preact, Next, Remix, Gatsby, Vue, Nuxt, Pinia, Weex, Angular, Analog, Svelte, SvelteKit, Elder, Solid, Qwik, Lit, Astro, Alpine  
+6. Open ABI + CI gates  
+
+Meta-framework **servers** are not embedded — that would reintroduce the slow path. Migrate + loaders + effects is the speed-safe way to absorb projects.
+
+## Real metrics
+
+`npm run bench` (this machine, representative):
+
+| Bench | Result |
+|-------|--------|
+| Dirty DAG vs 50k edge scan | **~812×** faster |
+| Binary DSM encode vs JSON (64 slots) | **~174×** faster, **~1.9×** fewer bytes |
+
+Homepage **Live measure**: wall-clock DOM + payload + live `/api/delta` in *your* browser.
+
+## Quick start (testers)
 
 ```bash
-git clone <this-repo> aether-framework
+git clone https://github.com/aether-js/aether-framework.git
 cd aether-framework
-cargo build -p aether_compiler
 npm install
-npm run build -w aether_runtime
+npm run setup          # compiler + runtime + smoke + public bench
+npm run start          # http://localhost:3000
+npm run doctor         # environment check
+```
 
+Full tester guide: [`docs/TRY.md`](docs/TRY.md)
+
+```bash
 npm run create -- my-app
-cd my-app
-npm run dev
+cd my-app && npm run dev
 ```
 
-| URL | |
-|-----|--|
-| http://localhost:5173 | app docs |
-| http://localhost:5173/app | live UI |
+Publish to npm: GitHub secret `NPM_TOKEN` + tag `v1.0.0` (workflows Publish + Release with compiler binaries).
 
-Framework docs (from repo root `npm run dev`): http://localhost:3000
 
-## Developer pipeline
+## Packages (1.0)
 
-```
-JSX / Vue / Svelte / Angular / Solid / Qwik / Lit / HTML
-        │
-        ▼
- aether-compile → IR → app.wasm (+ app.gc.wasm)
-        │
-        ▼
- snapshot → mount once → dirty patches → DSM sync
-```
+`aether` (`/store`, `/ssr`, `/router`) · `aether_runtime` · `aether_ssr` · `aether_cli` · `create-aether` · `vite-plugin-aether` · `aether-compat-*`
 
-## CLI
-
-| Command | |
-|---------|--|
-| `create <name>` | scaffold (`create-aether`) |
-| `dev` / `start` | HMR + SSR + DSM |
-| `build` / `deploy` | production |
-| `migrate` | Next/Nuxt/Vite/… → config + `src/pages` |
-
-## Pages · Loaders · SSR
-
-```
-src/pages/index.tsx        → /
-src/pages/about.tsx        → /about
-src/pages/about.loader.ts  → server data hook
-```
-
-SSR: IR → HTML with `data-aether-nid`, client hydrates without wiping the tree.
-
-Vite: `import aether from 'vite-plugin-aether'` → virtual `aether:program`.
+Publish: tag `v1.0.0` + `NPM_TOKEN`.
 
 ## License
 
-MIT — see `LICENSE`
+MIT

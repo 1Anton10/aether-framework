@@ -9,6 +9,9 @@
     "clear_cart": { "op": "set", "slot": "cart", "delta": 0 },
     "sync_cart": { "op": "inc", "slot": "cart", "server": true, "delta": 1 },
     "load_catalog": { "op": "perform", "effect": "db.get", "into": "catalog" },
-    "measure_ping": { "op": "perform", "effect": "ping", "into": "pingMs" }
+    "measure_ping": { "op": "perform", "effect": "ping", "into": "pingMs" },
+    "add_row": { "op": "inc", "slot": "items", "delta": 1 },
+    "remove_row": { "op": "inc", "slot": "items", "delta": -1 },
+    "toggle_panel": { "op": "perform", "effect": "toggle", "into": "showPanel" }
   }
 }

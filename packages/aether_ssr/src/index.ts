@@ -99,43 +99,6 @@ export function escapeAttr(text: string): string {
   return escapeHtml(text);
 }
 
-function resolveBinding(
-  binding: Binding | undefined,
-  program: AetherProgram,
-  slotValues: SlotValues
-): string {
-  if (!binding) return "";
-  if ("Static" in binding) return String(binding.Static ?? "");
-  if ("Reactive" in binding) {
-    const name = binding.Reactive;
-    if (name in slotValues) return String(slotValues[name]);
-    const slot = program.slots.find((s) => s.name === name);
-    if (slot && slot.name in slotValues) return String(slotValues[slot.name]);
-    return "";
-  }
-  if ("Expression" in binding) {
-    const expr = binding.Expression;
-    if (expr in slotValues) return String(slotValues[expr]);
-    return expr;
-  }
-  return "";
-}
-
-function renderAttrs(
-  props: Record<string, Binding> | undefined,
-  program: AetherProgram,
-  slotValues: SlotValues
-): string {
-  if (!props) return "";
-  let out = "";
-  for (const [key, binding] of Object.entries(props)) {
-    const value = resolveBinding(binding, program, slotValues);
-    const attr = key === "className" ? "class" : key;
-    if (value !== "") out += ` ${attr}="${escapeAttr(value)}"`;
-  }
-  return out;
-}
-
 function renderEventAttrs(
   events: Record<string, EventHandler> | undefined,
   effects: Record<string, EffectOp> | undefined
@@ -152,20 +115,118 @@ function renderEventAttrs(
   return out;
 }
 
+/** Normative max list clones (ABI §6) — keep in sync with runtime syncLoop. */
+export const LOOP_CAP = 64;
+
+function isLoop(cf: ControlFlow | undefined): cf is { Loop: [string, string] } {
+  return !!cf && typeof cf === "object" && "Loop" in cf;
+}
+
+function isCondition(cf: ControlFlow | undefined): cf is { Condition: string } {
+  return !!cf && typeof cf === "object" && "Condition" in cf;
+}
+
+function slotTruthy(
+  name: string,
+  program: AetherProgram,
+  slotValues: SlotValues
+): boolean {
+  let raw: number | string | undefined = slotValues[name];
+  if (raw === undefined) {
+    const slot = program.slots.find((s) => s.name === name);
+    if (slot) raw = slotValues[slot.name];
+  }
+  const n = typeof raw === "number" ? raw : Number(raw);
+  return Number.isFinite(n) ? n !== 0 : Boolean(raw);
+}
+
+function loopLength(
+  collection: string,
+  program: AetherProgram,
+  slotValues: SlotValues
+): number {
+  let raw: number | string | undefined = slotValues[collection];
+  if (raw === undefined) {
+    const slot = program.slots.find((s) => s.name === collection);
+    if (slot) raw = slotValues[slot.name];
+  }
+  const n = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.min(Math.floor(n), LOOP_CAP);
+}
+
+function resolveBinding(
+  binding: Binding | undefined,
+  program: AetherProgram,
+  slotValues: SlotValues,
+  loopIndex = -1
+): string {
+  if (!binding) return "";
+  if ("Static" in binding) return String(binding.Static ?? "");
+  if ("Reactive" in binding) {
+    const name = binding.Reactive;
+    if (name in slotValues) return String(slotValues[name]);
+    const slot = program.slots.find((s) => s.name === name);
+    if (slot && slot.name in slotValues) return String(slotValues[slot.name]);
+    return "";
+  }
+  if ("Expression" in binding) {
+    const expr = binding.Expression;
+    if (expr === "$item" || expr.startsWith("$item")) {
+      return loopIndex >= 0 ? String(loopIndex + 1) : "";
+    }
+    if (expr in slotValues) return String(slotValues[expr]);
+    return expr;
+  }
+  return "";
+}
+
+function renderAttrs(
+  props: Record<string, Binding> | undefined,
+  program: AetherProgram,
+  slotValues: SlotValues,
+  loopIndex = -1
+): string {
+  if (!props) return "";
+  let out = "";
+  for (const [key, binding] of Object.entries(props)) {
+    const value = resolveBinding(binding, program, slotValues, loopIndex);
+    const attr = key === "className" ? "class" : key;
+    if (value !== "") out += ` ${attr}="${escapeAttr(value)}"`;
+  }
+  return out;
+}
+
 function renderNode(
   program: AetherProgram,
   slotValues: SlotValues,
-  nodeId: number
+  nodeId: number,
+  expandControl = true,
+  loopIndex = -1
 ): string {
   const node = program.nodes[nodeId];
   if (!node) return "";
 
+  if (expandControl && isLoop(node.control_flow)) {
+    const [collection] = node.control_flow.Loop;
+    const n = loopLength(collection, program, slotValues);
+    let out = "";
+    for (let i = 0; i < n; i++) {
+      out += renderNode(program, slotValues, nodeId, false, i);
+    }
+    return out;
+  }
+
+  if (expandControl && isCondition(node.control_flow)) {
+    if (!slotTruthy(node.control_flow.Condition, program, slotValues)) return "";
+    return renderNode(program, slotValues, nodeId, false, loopIndex);
+  }
+
   const nt = node.node_type;
 
   if ("Text" in nt) {
-    const text = resolveBinding(nt.Text, program, slotValues);
-    // Wrap reactive text so hydration can attach handles
-    if ("Reactive" in nt.Text) {
+    const text = resolveBinding(nt.Text, program, slotValues, loopIndex);
+    if ("Reactive" in nt.Text || ("Expression" in nt.Text && nt.Text.Expression === "$item")) {
       return `<span data-aether-nid="${nodeId}">${escapeHtml(text)}</span>`;
     }
     return escapeHtml(text);
@@ -176,7 +237,7 @@ function renderNode(
     const tagName = String(tag).toLowerCase();
     const attrs =
       ` data-aether-nid="${nodeId}"` +
-      renderAttrs(props, program, slotValues) +
+      renderAttrs(props, program, slotValues, loopIndex) +
       renderEventAttrs(events, program.effects);
     const children = node.children ?? [];
     if (children.length === 0) {
@@ -184,7 +245,7 @@ function renderNode(
     }
     let inner = "";
     for (const childId of children) {
-      inner += renderNode(program, slotValues, nid(childId));
+      inner += renderNode(program, slotValues, nid(childId), true, loopIndex);
     }
     return `<${tagName}${attrs}>${inner}</${tagName}>`;
   }
@@ -193,10 +254,10 @@ function renderNode(
     const { name, props } = nt.Component;
     const attrs =
       ` data-aether-component="${escapeAttr(name)}"` +
-      renderAttrs(props, program, slotValues);
+      renderAttrs(props, program, slotValues, loopIndex);
     let inner = "";
     for (const childId of node.children ?? []) {
-      inner += renderNode(program, slotValues, nid(childId));
+      inner += renderNode(program, slotValues, nid(childId), true, loopIndex);
     }
     if (inner) return `<div${attrs}>${inner}</div>`;
     return `<div${attrs}></div>`;

@@ -1,13 +1,12 @@
 # create-aether
 
-```bash
-# from Aether monorepo
-npm run create -- my-app
+Scaffold an Aether app.
 
-# or with AETHER_HOME pointing at the framework clone
+```bash
 npx create-aether my-app
-cd my-app
-npm run dev
+cd my-app && npm run dev
 ```
 
-Opens http://localhost:5173 (docs) and http://localhost:5173/app (UI).
+If the framework repo is not on disk, `create-aether` shallow-clones it to `~/.aether/framework` and runs `npm run setup` once.
+
+Testers: [docs/TRY.md](../../docs/TRY.md)

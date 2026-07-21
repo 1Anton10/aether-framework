@@ -21,6 +21,8 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 Desktop.ini
+test-results/
+playwright-report/
 
 # Env / secrets
 .env
@@ -29,6 +31,7 @@ Desktop.ini
 *.pem
 *.key
 AETHER_TLS_*
+.aether-ready
 
 # Editors
 .idea/

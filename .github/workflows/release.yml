@@ -1,0 +1,90 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  binaries:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: aether-compile-linux-x64
+          - os: windows-latest
+            asset: aether-compile-windows-x64.exe
+          - os: macos-latest
+            asset: aether-compile-macos-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build release compiler
+        run: cargo build -p aether_compiler --release
+      - name: Stage asset (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p dist-bin
+          cp target/release/aether-compile "dist-bin/${{ matrix.asset }}"
+          chmod +x "dist-bin/${{ matrix.asset }}"
+      - name: Stage asset (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist-bin | Out-Null
+          Copy-Item target\release\aether-compile.exe "dist-bin\${{ matrix.asset }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: dist-bin/${{ matrix.asset }}
+
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run bench:public
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-results
+          path: site/bench-results.json
+
+  github-release:
+    needs: [binaries, bench]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Collect assets
+        run: |
+          mkdir -p release-assets
+          find artifacts -type f -exec cp {} release-assets/ \;
+          ls -la release-assets
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          generate_release_notes: true
+          body: |
+            ## Aether ${{ github.ref_name }}
+
+            Tester path: see [docs/TRY.md](https://github.com/aether-js/aether-framework/blob/main/docs/TRY.md)
+
+            ```bash
+            git clone https://github.com/aether-js/aether-framework.git
+            cd aether-framework && npm i && npm run setup && npm run start
+            ```
+
+            Compiler binaries attached — `npm run ensure:compiler` will pick them up from this release.

@@ -1,8 +1,8 @@
-{
+﻿{
   "name": "aether-monorepo",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "private": true,
-  "description": "Aether — Wasm UI framework (IR → memory → DOM → binary DSM)",
+  "description": "Aether — Frontend Runtime Standard (IR → Wasm memory → DOM → binary DSM)",
   "license": "MIT",
   "engines": {
     "node": ">=18.0.0"
@@ -23,13 +23,21 @@
     "test:ir": "cargo test -p aether_ir",
     "test:compiler": "cargo test -p aether_compiler",
     "smoke": "node --experimental-strip-types scripts/smoke.mjs",
+    "smoke:syntax": "node scripts/smoke-syntax.mjs",
+    "publish:check": "node scripts/publish-check.mjs",
+    "ensure:compiler": "node scripts/ensure-compiler.mjs",
+    "setup": "node scripts/setup.mjs",
+    "doctor": "node scripts/doctor.mjs",
+    "bench": "node --experimental-strip-types packages/aether_bench/bench.ts",
+    "bench:public": "node scripts/public-bench.mjs",
     "test": "npm run test:ir && npm run test:compiler && npm run smoke",
-    "test:e2e": "npx playwright test",
-    "bench": "node --experimental-strip-types packages/aether_bench/bench.ts"
+    "test:e2e": "npx playwright test"
   },
   "repository": {
     "type": "git",
     "url": "https://github.com/aether-js/aether-framework.git"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1"
   }
 }
-

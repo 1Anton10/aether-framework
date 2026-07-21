@@ -1,0 +1,34 @@
+name: Publish
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w aether_runtime
+      - run: npm run publish:check
+      - name: Publish packages
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -e
+          for pkg in aether aether_runtime aether_ssr aether_cli create-aether vite-plugin-aether aether-adapter aether-compat-react aether-compat-vue aether-compat-svelte aether-compat-solid aether-compat-qwik aether-compat-lit aether-compat-angular; do
+            echo "Publishing $pkg…"
+            npm publish --workspace "$pkg" --access public --provenance || npm publish --workspace "$pkg" --access public
+          done

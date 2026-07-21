@@ -3,29 +3,23 @@
  * useState / hooks drive local cells; compile-time JSX still lowers to Wasm IR.
  */
 
-type Child = Node | string | number | null | undefined | boolean | Child[];
-
-function flatten(children: Child[], into: Node[]) {
+function flatten(children, into) {
   for (const c of children) {
     if (c == null || c === false || c === true) continue;
     if (Array.isArray(c)) flatten(c, into);
     else if (typeof c === "string" || typeof c === "number")
       into.push(document.createTextNode(String(c)));
-    else into.push(c as Node);
+    else into.push(c);
   }
 }
 
-export function createElement(
-  type: any,
-  props: Record<string, any> | null,
-  ...children: Child[]
-): Node {
+export function createElement(type, props, ...children) {
   if (typeof type === "function") {
     return type({ ...(props || {}), children });
   }
   if (type === Fragment) {
     const frag = document.createDocumentFragment();
-    const nodes: Node[] = [];
+    const nodes = [];
     flatten(children, nodes);
     nodes.forEach((n) => frag.appendChild(n));
     return frag;
@@ -39,11 +33,11 @@ export function createElement(
       continue;
     }
     if (key === "style" && typeof val === "object") {
-      Object.assign((el as HTMLElement).style, val);
+      Object.assign(el.style, val);
       continue;
     }
     if (key.startsWith("on") && typeof val === "function") {
-      el.addEventListener(key.slice(2).toLowerCase(), val as EventListener);
+      el.addEventListener(key.slice(2).toLowerCase(), val);
       continue;
     }
     if (key.startsWith("on") && typeof val === "string") {
@@ -53,77 +47,73 @@ export function createElement(
     }
     el.setAttribute(key, String(val));
   }
-  const nodes: Node[] = [];
+  const nodes = [];
   if (p.children) flatten([p.children], nodes);
   flatten(children, nodes);
   nodes.forEach((n) => el.appendChild(n));
   return el;
 }
 
-export function Fragment(props: { children?: Child }) {
+export function Fragment(props) {
   const frag = document.createDocumentFragment();
-  const nodes: Node[] = [];
+  const nodes = [];
   flatten([props?.children], nodes);
   nodes.forEach((n) => frag.appendChild(n));
   return frag;
 }
 
 let hookCursor = 0;
-const hookStates: any[] = [];
-let rerender: (() => void) | null = null;
+const hookStates = [];
+let rerender = null;
 
-export function useState<T>(init: T): [T, (v: T | ((p: T) => T)) => void] {
+export function useState(init) {
   const i = hookCursor++;
   if (hookStates[i] === undefined) hookStates[i] = init;
-  const set = (v: T | ((p: T) => T)) => {
-    hookStates[i] = typeof v === "function" ? (v as any)(hookStates[i]) : v;
+  const set = (v) => {
+    hookStates[i] = typeof v === "function" ? v(hookStates[i]) : v;
     rerender?.();
   };
   return [hookStates[i], set];
 }
 
-export function useRef<T>(init: T): { current: T } {
+export function useRef(init) {
   const i = hookCursor++;
   if (hookStates[i] === undefined) hookStates[i] = { current: init };
   return hookStates[i];
 }
 
-export function useMemo<T>(fn: () => T, _deps?: any[]): T {
+export function useMemo(fn, _deps) {
   const i = hookCursor++;
   if (hookStates[i] === undefined) hookStates[i] = fn();
   return hookStates[i];
 }
 
-export function useCallback<T extends (...args: any[]) => any>(fn: T, _deps?: any[]): T {
+export function useCallback(fn, _deps) {
   return useMemo(() => fn, _deps);
 }
 
-export function useEffect(fn: () => void | (() => void), _deps?: any[]) {
+export function useEffect(fn, _deps) {
   queueMicrotask(() => {
     fn();
   });
 }
 
-export function useLayoutEffect(fn: () => void | (() => void), deps?: any[]) {
+export function useLayoutEffect(fn, deps) {
   useEffect(fn, deps);
 }
 
-export function useReducer<S, A>(
-  reducer: (s: S, a: A) => S,
-  init: S
-): [S, (a: A) => void] {
+export function useReducer(reducer, init) {
   const [state, setState] = useState(init);
-  return [state, (a: A) => setState((s) => reducer(s, a))];
+  return [state, (a) => setState((s) => reducer(s, a))];
 }
 
-type Ctx<T> = { _value: T; Provider: (p: { value: T; children?: Child }) => Node };
-export function createContext<T>(defaultValue: T): Ctx<T> {
-  const ctx: Ctx<T> = {
+export function createContext(defaultValue) {
+  const ctx = {
     _value: defaultValue,
     Provider(p) {
       ctx._value = p.value;
       const frag = document.createDocumentFragment();
-      const nodes: Node[] = [];
+      const nodes = [];
       flatten([p.children], nodes);
       nodes.forEach((n) => frag.appendChild(n));
       return frag;
@@ -132,15 +122,15 @@ export function createContext<T>(defaultValue: T): Ctx<T> {
   return ctx;
 }
 
-export function useContext<T>(ctx: Ctx<T>): T {
+export function useContext(ctx) {
   return ctx._value;
 }
 
 export const Children = {
-  map(children: any, fn: (c: any, i: number) => any) {
+  map(children, fn) {
     return (Array.isArray(children) ? children : [children]).map(fn);
   },
-  toArray(children: any) {
+  toArray(children) {
     return Array.isArray(children) ? children : children == null ? [] : [children];
   },
 };
@@ -160,17 +150,17 @@ export default {
   Children,
 };
 
-export function render(node: Node, container: Element) {
+export function render(node, container) {
   container.replaceChildren(node);
 }
 
-export const createRoot = (container: Element) => ({
-  render(node: Node) {
+export const createRoot = (container) => ({
+  render(node) {
     render(node, container);
   },
 });
 
-export function __setRerender(fn: () => void) {
+export function __setRerender(fn) {
   rerender = () => {
     hookCursor = 0;
     fn();

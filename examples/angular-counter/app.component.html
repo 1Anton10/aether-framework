@@ -1,4 +1,7 @@
 <div>
   <h1>{{ count }}</h1>
   <button (click)="inc_count()">+</button>
+  <ul>
+    <li *ngFor="let item of items" class="row">row</li>
+  </ul>
 </div>

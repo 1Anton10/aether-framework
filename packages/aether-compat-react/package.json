@@ -1,12 +1,25 @@
 {
   "name": "aether-compat-react",
-  "version": "0.1.0",
+  "version": "1.0.0",
+  "type": "module",
   "description": "React/ReactDOM API shim for Aether Bridge",
+  "license": "MIT",
   "main": "index.js",
   "exports": {
     ".": "./index.js",
     "./index.js": "./index.js",
     "./client": "./dom.js",
     "./jsx-runtime": "./jsx-runtime.js"
+  },
+  "files": [
+    "*.js",
+    "package.json"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aether-js/aether-framework.git"
   }
 }

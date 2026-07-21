@@ -1,0 +1,6 @@
+{
+  "root": ".",
+  "entry": "App.vue",
+  "state": "state.ts",
+  "bindings": "aether.bindings.json"
+}

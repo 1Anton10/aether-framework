@@ -1,8 +1,13 @@
 <script>
-  // Svelte-like example — same IR as JSX/Vue
+  // Svelte — counter + #each → ControlFlow::Loop
 </script>
 
 <div>
   <h1>{count}</h1>
   <button on:click={inc_count}>+</button>
+  <ul>
+    {#each items as item}
+      <li class="row">row</li>
+    {/each}
+  </ul>
 </div>

@@ -1,15 +1,44 @@
 {
   "name": "aether_cli",
-  "version": "0.1.0",
-  "description": "Aether Framework CLI Bundler and Dev Server",
-  "main": "dist/index.js",
+  "version": "1.0.0",
+  "description": "Aether CLI — create, dev, build, migrate, deploy",
   "type": "module",
+  "license": "MIT",
+  "bin": {
+    "aether": "./bin/aether.js"
+  },
+  "main": "src/index.ts",
+  "files": [
+    "src",
+    "bin",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsup src/index.ts --format cjs --clean",
     "start": "node --experimental-strip-types src/index.ts"
   },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "aether",
+    "cli",
+    "wasm",
+    "ssr"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aether-js/aether-framework.git",
+    "directory": "packages/aether_cli"
+  },
   "devDependencies": {
     "tsup": "^8.5.1",
     "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "aether_ssr": "1.0.0"
   }
 }

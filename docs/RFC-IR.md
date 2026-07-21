@@ -28,6 +28,11 @@
 
 Рантайм монтирует DOM один раз из program JSON, дальше патчит по рёбрам. VDOM для обновлений не перепарсивается.
 
-## Вне скоупа Wave 1
+## Списки и компоненты
 
-Типы WasmGC, dirty-queue Adapton, алгебраический unwind стека, SFC-парсеры.
+- `NodeType::Component` — вложенные `.tsx` из `src/`  
+- `ControlFlow::Loop(collection, item)` — из `{items.map}`, `v-for`, `{#each}`, `*ngFor`  
+- Рантайм и SSR синхронизируют число DOM-клонов с `i32` длиной слота `collection` (cap 64)  
+
+Per-item payload в слотах — вне контракта v0.3 (длина списка — нормативная часть стандарта).
+

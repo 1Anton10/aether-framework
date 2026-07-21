@@ -1,4 +1,4 @@
-import { execFile } from "child_process";
+import { execFile, spawnSync } from "child_process";
 import * as crypto from "crypto";
 import * as fs from "fs";
 import * as http from "http";
@@ -6,7 +6,7 @@ import * as path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 import type { Duplex } from "stream";
 import { buildPagesManifest, discoverPages } from "./pages.ts";
-import { renderToString } from "../../aether_ssr/src/index.ts";
+import { renderToString } from "aether_ssr";
 
 type AetherConfig = {
   root?: string;
@@ -261,19 +261,32 @@ function applyDeltas(deltas: Array<[number, number]>) {
   return applied;
 }
 
-function runEffectHandler(effect: string, payload: number): number {
+const SERVER_CATALOG = [
+  { id: 1, name: "Aurora Lamp", tag: "light", price: 49 },
+  { id: 2, name: "Nova Chair", tag: "home", price: 120 },
+  { id: 3, name: "Pulse Speaker", tag: "audio", price: 89 },
+  { id: 4, name: "Orbit Desk", tag: "work", price: 240 },
+  { id: 5, name: "Quark Mug", tag: "kitchen", price: 18 },
+  { id: 6, name: "Flux Bag", tag: "travel", price: 64 },
+];
+
+function runEffectHandler(effect: string, payload: number): { value: number; mode: string } {
   const spec = config.effects?.[effect] || config.effects?.[effect.replace(".", "_")];
-  if (!spec) return payload;
-  if (spec.type === "add") return payload + (spec.arg ?? 0);
-  if (spec.type === "mul") return payload * (spec.arg ?? 1);
-  return payload;
+  if (!spec) return { value: payload, mode: "value" };
+  if (spec.type === "rtt") return { value: 0, mode: "rtt" };
+  if (spec.type === "catalog") return { value: SERVER_CATALOG.length, mode: "value" };
+  if (spec.type === "toggle") return { value: payload ? 0 : 1, mode: "value" };
+  if (spec.type === "set" || spec.type === "fixed") return { value: spec.arg ?? 0, mode: "value" };
+  if (spec.type === "add") return { value: payload + (spec.arg ?? 0), mode: "value" };
+  if (spec.type === "mul") return { value: payload * (spec.arg ?? 1), mode: "value" };
+  return { value: payload, mode: "value" };
 }
 
-function handleEffect(bytes: Buffer) {
+function handleEffect(bytes: Buffer): { deltas: Array<[number, number]>; mode: string } {
   const req = decodeEffectRequest(bytes);
-  if (!req || !program) return [] as Array<[number, number]>;
-  const value = runEffectHandler(req.effect, req.payload);
-  return applyDeltas([[req.resume, value]]);
+  if (!req || !program) return { deltas: [], mode: "value" };
+  const { value, mode } = runEffectHandler(req.effect, req.payload);
+  return { deltas: applyDeltas([[req.resume, value]]), mode };
 }
 
 function broadcastDsm(buf: Buffer) {
@@ -316,99 +329,125 @@ function appHtml(snapshot: Uint8Array): string {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Aether — как это работает</title>
+  <title>Aether Demo</title>
   <meta name="aether-ssr" content="${ssrBody ? "1" : "0"}" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <script src="/runtime.js?v=${Date.now()}" defer></script>
+  <script src="/tour-viz.js?v=${Date.now()}" defer></script>
   <style>
     :root{--bg:#07090d;--elev:#10151d;--ink:#eef2f7;--muted:#8b95a8;--line:#1c2430;--accent:#5eead4;--accent-ink:#042f2e;--warm:#fbbf24}
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:"Sora",system-ui,sans-serif;color:var(--ink);background:radial-gradient(900px 500px at 100% -10%,#134e4a44,transparent 50%),var(--bg);line-height:1.55;min-height:100vh}
     #root{min-height:100vh}
-    .tour{width:min(920px,calc(100% - 2rem));margin:0 auto;padding:1.25rem 0 3.5rem}
+    .tour{width:min(960px,calc(100% - 2rem));margin:0 auto;padding:1.25rem 0 3.5rem}
     .tour-nav{display:flex;flex-wrap:wrap;align-items:center;gap:.85rem;margin-bottom:2rem}
     .tour-logo{font-family:"JetBrains Mono",monospace;color:var(--ink);text-decoration:none;font-weight:500;font-size:1.05rem}
     .tour-pill{font-size:.72rem;font-weight:600;padding:.2rem .55rem;border-radius:999px;background:#134e4a;color:var(--accent)}
     .tour-nav a{color:var(--muted);text-decoration:none;font-size:.9rem}
     .tour-nav a:hover{color:var(--accent)}
-    .tour-intro h1{font-size:clamp(1.6rem,3.5vw,2.2rem);letter-spacing:-.03em;margin-bottom:.6rem}
-    .tour-intro p{color:var(--muted);max-width:40rem;margin-bottom:2rem}
+    .tour-intro h1{font-size:clamp(1.45rem,3.2vw,2rem);letter-spacing:-.03em;margin-bottom:.6rem}
+    .tour-intro p{color:var(--muted);max-width:42rem;margin-bottom:2rem}
     .tour-steps{list-style:none;display:grid;gap:1.5rem}
     .tour-step{border:1px solid var(--line);border-radius:.75rem;background:var(--elev);overflow:hidden}
     .tour-step-head{display:flex;gap:1rem;padding:1.25rem 1.25rem .5rem}
     .tour-num{flex:0 0 2rem;height:2rem;border-radius:999px;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font-weight:700}
-    .tour-step-head h2{font-size:1.15rem;margin-bottom:.35rem}
+    .tour-step-head h2{font-size:1.1rem;margin-bottom:.35rem}
     .tour-why{color:var(--muted);font-size:.95rem}
-    .tour-demo{display:grid;grid-template-columns:1.1fr .9fr;gap:0;border-top:1px solid var(--line);margin-top:1rem}
+    .tour-demo{display:grid;grid-template-columns:1.15fr .85fr;gap:0;border-top:1px solid var(--line);margin-top:1rem}
     .tour-demo-ui{padding:1.25rem}
     .tour-explain{padding:1.25rem;background:#0c1118;border-left:1px solid var(--line)}
     .tour-explain h3{font-size:.8rem;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);margin-bottom:.5rem}
-    .tour-explain p{color:var(--muted);font-size:.9rem}
-    .tour-explain code,.tour-why code,.tour-finale code,.tour-wire code{font-family:"JetBrains Mono",monospace;color:var(--warm);font-size:.85em}
+    .tour-explain p{color:var(--muted);font-size:.9rem;margin-bottom:.75rem}
+    .tour-explain code,.tour-why code,.tour-finale code{font-family:"JetBrains Mono",monospace;color:var(--warm);font-size:.85em}
     .tour-label{color:var(--muted);font-size:.85rem;margin-bottom:.35rem}
-    .tour-big{font-family:"JetBrains Mono",monospace;font-size:2.8rem;color:var(--accent);letter-spacing:-.04em;margin-bottom:.9rem}
-    .tour-btns{display:flex;flex-wrap:wrap;gap:.5rem}
+    .tour-big{font-family:"JetBrains Mono",monospace;font-size:2.4rem;color:var(--accent);letter-spacing:-.04em;margin-bottom:.6rem}
+    .tour-btns{display:flex;flex-wrap:wrap;gap:.5rem;margin:.75rem 0}
     button{font:inherit;font-weight:600;font-size:.88rem;cursor:pointer;padding:.55rem .9rem;border-radius:.4rem;border:1px solid var(--line);background:#161c26;color:var(--ink)}
     button:hover{border-color:var(--accent)}
-    .tour-flow{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;font-size:.95rem;color:var(--muted);margin-bottom:.75rem}
-    .tour-flow strong{color:var(--ink);font-family:"JetBrains Mono",monospace;font-size:1.15rem}
-    .tour-flow span{color:var(--accent)}
-    .tour-hint{color:var(--muted);font-size:.88rem}
-    .tour-row{display:flex;justify-content:space-between;gap:1rem;padding:.5rem 0;border-bottom:1px solid var(--line);color:var(--muted)}
-    .tour-row strong{color:var(--ink);font-family:"JetBrains Mono",monospace}
-    .tour-wire{margin-top:.85rem;font-size:.88rem;color:var(--accent)}
+    .tour-hint{color:var(--muted);font-size:.88rem;margin-top:.75rem}
+    .viz-log{margin-top:.5rem;padding:.65rem .75rem;border-radius:.4rem;background:#121820;border:1px solid var(--line);color:var(--accent);font-size:.82rem;font-family:"JetBrains Mono",monospace}
+    .viz-shelf{display:flex;flex-wrap:wrap;gap:.35rem;min-height:2.2rem;margin-bottom:.5rem}
+    .viz-item{width:1.5rem;height:1.5rem;border-radius:.3rem;background:linear-gradient(145deg,#2dd4bf,#0f766e);display:grid;place-items:center;color:#042f2e;font-size:.65rem;animation:pop .25s ease}
+    .viz-empty,.viz-empty-inline{color:var(--muted);font-size:.88rem}
+    .viz-dag{display:flex;flex-wrap:wrap;align-items:center;gap:.55rem}
+    .viz-node{padding:.65rem .8rem;border:1px solid var(--line);border-radius:.5rem;background:#0c1219;min-width:4.5rem;transition:box-shadow .25s,border-color .25s}
+    .viz-node span{display:block;font-size:.72rem;color:var(--muted)}
+    .viz-node strong{font-family:"JetBrains Mono",monospace;font-size:1.2rem}
+    .viz-node.flash{border-color:var(--accent);box-shadow:0 0 0 3px #5eead433}
+    .viz-arrow{color:var(--accent);font-weight:700}
+    .viz-packets{display:grid;gap:.5rem;margin-top:.85rem}
+    .viz-packet{padding:.65rem .8rem;border-radius:.45rem;font-family:"JetBrains Mono",monospace;font-size:.82rem;border:1px solid var(--line)}
+    .viz-packet.json{opacity:.55}
+    .viz-packet.bin.idle{color:var(--muted)}
+    .viz-packet.bin.live{border-color:var(--accent);color:var(--accent);background:#0c1614}
+    .viz-timeline{display:grid;grid-template-columns:repeat(4,1fr);gap:.4rem;margin-bottom:.85rem}
+    .viz-tl-step{font-size:.72rem;padding:.45rem .35rem;text-align:center;border-radius:.35rem;border:1px solid var(--line);color:var(--muted);background:#0c1219}
+    .viz-tl-step.on{border-color:var(--warm);color:var(--warm)}
+    .viz-tl-step.done{border-color:var(--accent);color:var(--accent);background:#0c1614}
+    .viz-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+    .tour-why-list{list-style:none;display:grid;gap:.4rem;margin:1rem 0 1.25rem;padding:0;color:var(--muted);font-size:.92rem}
+    .tour-why-list strong{color:var(--ink)}
+    .tour-runtime{font-family:"JetBrains Mono",monospace;font-size:.78rem;color:var(--accent);margin-bottom:1.5rem}
+    .viz-ssr{margin:0;padding:.85rem;background:#0c1219;border:1px solid var(--line);border-radius:.45rem;font-family:"JetBrains Mono",monospace;font-size:.82rem;color:var(--warm);white-space:pre-wrap}
+    .viz-metric-row{display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin:1rem 0}
+    .viz-metric{padding:.85rem;border:1px solid var(--line);border-radius:.45rem;background:#0c1219}
+    .viz-metric span{display:block;font-size:.72rem;color:var(--muted);margin-bottom:.25rem}
+    .viz-metric strong{font-family:"JetBrains Mono",monospace;font-size:1.8rem;color:var(--accent)}
+    .viz-metric em{font-style:normal;color:var(--muted);margin-left:.25rem;font-size:.9rem}
+    .viz-catalog{margin-top:.75rem;min-height:4rem}
+    .viz-cat-title{font-size:.85rem;color:var(--muted);margin-bottom:.5rem}
+    .viz-cat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:.5rem}
+    .viz-card{padding:.7rem;border:1px solid var(--line);border-radius:.45rem;background:#0c1219;animation:pop .3s ease}
+    .viz-card h4{font-size:.88rem;margin-bottom:.25rem}
+    .viz-card span{font-size:.72rem;color:var(--accent)}
+    .viz-ping{margin-top:1rem;padding:1rem;border:1px solid var(--line);border-radius:.5rem;background:#0c1219;position:relative;overflow:hidden}
+    .viz-ping-pulse{position:absolute;inset:auto auto 0 0;width:4rem;height:4rem;border-radius:50%;background:#5eead433;transform:translate(-40%,40%) scale(0);opacity:0}
+    .viz-ping.pulse .viz-ping-pulse{animation:ping 1s ease}
+    #viz-ping-status{position:relative;font-size:.9rem;color:var(--muted)}
+    .viz-list{list-style:none;display:grid;gap:.35rem;margin:.75rem 0}
+    .viz-list-item{padding:.5rem .75rem;border:1px solid var(--line);border-radius:.35rem;background:#0c1219;font-family:"JetBrains Mono",monospace;font-size:.85rem;color:var(--accent)}
     .tour-finale{margin-top:2rem;padding:1.5rem;border:1px solid var(--line);border-radius:.75rem;background:linear-gradient(135deg,#10151d,#0c1614)}
     .tour-finale h2{font-size:1.2rem;margin-bottom:.5rem}
     .tour-finale p{color:var(--muted);margin-bottom:.75rem}
     .tour-finale-links{display:flex;flex-wrap:wrap;gap:1rem;align-items:center}
     .tour-cta{display:inline-flex;padding:.65rem 1rem;background:var(--accent);color:var(--accent-ink);text-decoration:none;font-weight:700;border-radius:.4rem}
     .tour-finale-links a:not(.tour-cta){color:var(--muted)}
-    @media(max-width:800px){.tour-demo{grid-template-columns:1fr}.tour-explain{border-left:0;border-top:1px solid var(--line)}}
+    @keyframes pop{from{transform:scale(.7);opacity:0}to{transform:none;opacity:1}}
+    @keyframes ping{0%{transform:translate(-40%,40%) scale(.2);opacity:.9}100%{transform:translate(-40%,40%) scale(3);opacity:0}}
+    @media(max-width:800px){.tour-demo{grid-template-columns:1fr}.tour-explain{border-left:0;border-top:1px solid var(--line)}.viz-timeline{grid-template-columns:1fr 1fr}}
   </style>
 </head>
 <body>
   ${rootInner}
   <script type="aether/snapshot" data-encoding="base64">${b64}</script>
   <script type="application/json" id="aether-loaders">${JSON.stringify(loaderData)}</script>
-  <script>
-  (function(){
-    const el = () => document.getElementById('tour-wire');
-    const orig = window.fetch;
-    window.fetch = async function(input, init){
-      const url = typeof input === 'string' ? input : (input && input.url) || '';
-      const res = await orig.apply(this, arguments);
-      if (url.indexOf('/api/delta') >= 0 || url.indexOf('/api/effect') >= 0) {
-        try {
-          const clone = res.clone();
-          const buf = await clone.arrayBuffer();
-          const n = buf.byteLength;
-          const jsonGuess = 48;
-          const node = el();
-          if (node) node.textContent = 'Ответ сервера: ' + n + ' байт (binary). Типичный JSON на то же изменение ≈ ' + jsonGuess + '+ байт.';
-        } catch(e) {}
-      }
-      return res;
-    };
-  })();
-  </script>
 </body>
 </html>`;
 }
 
 function compilerBinary(): string {
+  const isWin = process.platform === "win32";
+  const binName = isWin ? "aether-compile.exe" : "aether-compile";
+  const homeBin = path.join(
+    process.env.USERPROFILE || process.env.HOME || "",
+    ".aether",
+    "bin",
+    binName
+  );
+  const td = process.env.CARGO_TARGET_DIR || path.resolve(FRAMEWORK_ROOT, "target");
   const candidates = [
-    process.env.CARGO_TARGET_DIR
-      ? path.join(process.env.CARGO_TARGET_DIR, "debug", "aether-compile.exe")
-      : "",
-    path.resolve(FRAMEWORK_ROOT, "target/debug/aether-compile.exe"),
-    path.resolve(FRAMEWORK_ROOT, "target/debug/aether-compile"),
-    path.resolve(CONFIG_DIR, "target/debug/aether-compile.exe"),
-    path.resolve(CONFIG_DIR, "target/debug/aether-compile"),
+    process.env.AETHER_COMPILE || "",
+    homeBin,
+    path.resolve(FRAMEWORK_ROOT, "bin", binName),
+    path.join(td, "release", binName),
+    path.join(td, "debug", binName),
+    path.resolve(CONFIG_DIR, "target/release", binName),
+    path.resolve(CONFIG_DIR, "target/debug", binName),
   ].filter(Boolean);
   for (const c of candidates) if (fs.existsSync(c)) return c;
-  return "aether-compile";
+  return binName;
 }
 
 function runtimePath(): string {
@@ -499,13 +538,23 @@ function startDevServer() {
       return;
     }
 
+    if (url === "/api/catalog" && req.method === "GET") {
+      res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify({ items: SERVER_CATALOG, source: "server-memory" }));
+      return;
+    }
+
     if (url === "/api/effect" && req.method === "POST") {
       const chunks: Buffer[] = [];
       req.on("data", (c) => chunks.push(c));
       req.on("end", () => {
-        const out = encodeDeltas(handleEffect(Buffer.concat(chunks)));
+        const { deltas, mode } = handleEffect(Buffer.concat(chunks));
+        const out = encodeDeltas(deltas);
         broadcastDsm(out);
-        res.writeHead(200, { "Content-Type": "application/octet-stream" });
+        res.writeHead(200, {
+          "Content-Type": "application/octet-stream",
+          "X-Aether-Effect-Mode": mode,
+        });
         res.end(out);
       });
       return;
@@ -519,7 +568,7 @@ function startDevServer() {
       });
       void (async () => {
         try {
-          const { renderToStream } = await import("../../aether_ssr/src/index.ts");
+          const { renderToStream } = await import("aether_ssr");
           if (!program) {
             res.end("<!-- no program -->");
             return;
@@ -597,7 +646,7 @@ function startDevServer() {
       res.writeHead(200, {
         "Content-Type": "text/html; charset=utf-8",
         "Content-Security-Policy":
-          "default-src 'self'; script-src 'self' 'unsafe-inline' https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; font-src https://fonts.gstatic.com; connect-src 'self' ws: wss:",
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; font-src https://fonts.gstatic.com; connect-src 'self' ws: wss:",
         "X-Content-Type-Options": "nosniff",
         "Referrer-Policy": "strict-origin-when-cross-origin",
       });
@@ -632,15 +681,15 @@ function startDevServer() {
         `Sec-WebSocket-Accept: ${wsAcceptKey(key)}\r\n\r\n`
     );
     dsmSockets.add(socket);
-    let buf = Buffer.alloc(0);
+    let buf: Buffer = Buffer.alloc(0);
     socket.on("data", (chunk) => {
-      buf = Buffer.concat([buf, chunk]);
+      buf = Buffer.from(Buffer.concat([buf, chunk]));
       const { messages, rest } = wsDecodeFrames(buf);
-      buf = rest;
+      buf = Buffer.from(rest);
       for (const msg of messages) {
         const out =
           msg[0] === 0xef
-            ? encodeDeltas(handleEffect(msg.subarray(1)))
+            ? encodeDeltas(handleEffect(msg.subarray(1)).deltas)
             : encodeDeltas(applyDeltas(decodeDeltas(msg)));
         socket.write(wsEncodeBinary(out));
         broadcastDsm(out);
@@ -716,7 +765,7 @@ async function startHttp3WebTransport() {
             const msg = Buffer.from(value);
             const out =
               msg[0] === 0xef
-                ? encodeDeltas(handleEffect(msg.subarray(1)))
+                ? encodeDeltas(handleEffect(msg.subarray(1)).deltas)
                 : encodeDeltas(applyDeltas(decodeDeltas(msg)));
             await dgWriter.write(out);
             broadcastDsm(out);
@@ -850,12 +899,20 @@ function handleMigrateCommand() {
     react: "aether-compat-react",
     "react-dom": "aether-compat-react",
     preact: "aether-compat-react",
+    "preact/hooks": "aether-compat-react",
     vue: "aether-compat-vue",
+    "vue-router": "aether-compat-vue",
+    pinia: "aether-compat-vue",
+    "weex-vue-framework": "aether-compat-vue",
+    svelte: "aether-compat-svelte",
     solidjs: "aether-compat-solid",
     "solid-js": "aether-compat-solid",
     "@builder.io/qwik": "aether-compat-qwik",
     lit: "aether-compat-lit",
+    "lit-html": "aether-compat-lit",
     "@angular/core": "aether-compat-angular",
+    "@analogjs/platform": "aether-compat-angular",
+    alpinejs: "aether-compat-vue",
   };
   for (const [from, to] of Object.entries(aliasMap)) {
     if (deps[from] || pkg.dependencies[from]) {
@@ -909,10 +966,17 @@ function handleMigrateCommand() {
     [/from ["']preact["']/g, 'from "aether-compat-react"'],
     [/from ["']preact\/hooks["']/g, 'from "aether-compat-react"'],
     [/from ["']vue["']/g, 'from "aether-compat-vue"'],
+    [/from ["']pinia["']/g, 'from "aether-compat-vue"'],
+    [/from ["']svelte["']/g, 'from "aether-compat-svelte"'],
+    [/from ["']svelte\/store["']/g, 'from "aether-compat-svelte"'],
     [/from ["']solid-js["']/g, 'from "aether-compat-solid"'],
     [/from ["']@builder\.io\/qwik["']/g, 'from "aether-compat-qwik"'],
     [/from ["']lit["']/g, 'from "aether-compat-lit"'],
+    [/from ["']lit-html["']/g, 'from "aether-compat-lit"'],
     [/from ["']@angular\/core["']/g, 'from "aether-compat-angular"'],
+    [/from ["']alpinejs["']/g, 'from "aether-compat-vue"'],
+    [/from ["']@remix-run\/react["']/g, 'from "aether-compat-react"'],
+    [/from ["']gatsby["']/g, 'from "aether-compat-react"'],
   ];
   const walk = (dir: string) => {
     if (!fs.existsSync(dir)) return;
@@ -968,7 +1032,9 @@ function mapFrameworkPagesToAether(
         let outRel = relPath.replace(/\\/g, "/");
         outRel = outRel
           .replace(/\/page\.(tsx|jsx|js|ts)$/i, "/index.$1")
-          .replace(/^page\.(tsx|jsx|js|ts)$/i, "index.$1");
+          .replace(/^page\.(tsx|jsx|js|ts)$/i, "index.$1")
+          .replace(/\/\+page\.(svelte|tsx|jsx|js|ts|vue)$/i, "/index.$1")
+          .replace(/^\+page\.(svelte|tsx|jsx|js|ts|vue)$/i, "index.$1");
         const out = path.join(dest, outRel);
         fs.mkdirSync(path.dirname(out), { recursive: true });
         if (!fs.existsSync(out)) {
@@ -980,12 +1046,20 @@ function mapFrameworkPagesToAether(
     walk(from);
   };
 
-  if (name === "next") {
+  if (name === "next" || name === "remix" || name === "gatsby") {
     if (fs.existsSync(path.join(cwd, "app"))) copyTree(path.join(cwd, "app"));
     else if (fs.existsSync(path.join(cwd, "pages"))) copyTree(path.join(cwd, "pages"));
-  } else if (name === "nuxt" || name === "vue") {
+    else if (fs.existsSync(path.join(cwd, "src/pages"))) copyTree(path.join(cwd, "src/pages"));
+  } else if (name === "nuxt" || name === "vue" || name === "weex") {
     if (fs.existsSync(path.join(cwd, "pages"))) copyTree(path.join(cwd, "pages"));
     else if (fs.existsSync(path.join(cwd, "app/pages"))) copyTree(path.join(cwd, "app/pages"));
+  } else if (name === "svelte" || name === "sveltekit" || name === "elder") {
+    if (fs.existsSync(path.join(cwd, "src/routes"))) copyTree(path.join(cwd, "src/routes"));
+    else if (fs.existsSync(path.join(cwd, "routes"))) copyTree(path.join(cwd, "routes"));
+  } else if (name === "astro") {
+    if (fs.existsSync(path.join(cwd, "src/pages"))) copyTree(path.join(cwd, "src/pages"));
+  } else if (name === "analog" || name === "angular") {
+    if (fs.existsSync(path.join(cwd, "src/app"))) copyTree(path.join(cwd, "src/app"));
   }
 
   const entry =
@@ -993,7 +1067,9 @@ function mapFrameworkPagesToAether(
       ? "src/pages/index.tsx"
       : copied > 0 && fs.existsSync(path.join(dest, "index.vue"))
         ? "src/pages/index.vue"
-        : "";
+        : copied > 0 && fs.existsSync(path.join(dest, "index.svelte"))
+          ? "src/pages/index.svelte"
+          : "";
   return { entry, copied };
 }
 
@@ -1002,7 +1078,58 @@ function detectFramework(
   cwd: string
 ): { name: string; entry: string } {
   const exists = (...parts: string[]) => fs.existsSync(path.join(cwd, ...parts));
-  if (deps["@angular/core"]) {
+
+  // Meta / specialized first (more specific deps)
+  if (deps["@analogjs/platform"] || deps["@analogjs/vite-plugin-angular"]) {
+    return {
+      name: "analog",
+      entry: exists("src/app/app.component.html")
+        ? "src/app/app.component.html"
+        : "src/app/pages/index.page.ts",
+    };
+  }
+  if (deps["@elderjs/elderjs"] || deps["@elderjs/svelte"]) {
+    return {
+      name: "elder",
+      entry: exists("src/routes/home/Home.svelte")
+        ? "src/routes/home/Home.svelte"
+        : "src/App.svelte",
+    };
+  }
+  if (deps.astro) {
+    return {
+      name: "astro",
+      entry: exists("src/pages/index.astro") ? "src/pages/index.astro" : "src/pages/index.tsx",
+    };
+  }
+  if (deps["@remix-run/react"] || deps["@remix-run/node"] || deps["@remix-run/cloudflare"]) {
+    return {
+      name: "remix",
+      entry: exists("app/routes/_index.tsx") ? "app/routes/_index.tsx" : "app/root.tsx",
+    };
+  }
+  if (deps.gatsby) {
+    return {
+      name: "gatsby",
+      entry: exists("src/pages/index.tsx") ? "src/pages/index.tsx" : "src/pages/index.js",
+    };
+  }
+  if (deps.next) {
+    return {
+      name: "next",
+      entry: exists("app/page.tsx") ? "app/page.tsx" : "pages/index.tsx",
+    };
+  }
+  if (deps.nuxt || deps["@nuxt/kit"]) {
+    return { name: "nuxt", entry: exists("app.vue") ? "app.vue" : "src/App.vue" };
+  }
+  if (deps["@sveltejs/kit"]) {
+    return {
+      name: "sveltekit",
+      entry: exists("src/routes/+page.svelte") ? "src/routes/+page.svelte" : "src/App.svelte",
+    };
+  }
+  if (deps["@angular/core"] || deps.angular) {
     return {
       name: "angular",
       entry: exists("src/app/app.component.html")
@@ -1016,28 +1143,33 @@ function detectFramework(
   if (deps["@builder.io/qwik"]) {
     return { name: "qwik", entry: exists("src/routes/index.tsx") ? "src/routes/index.tsx" : "src/app.tsx" };
   }
-  if (deps.lit || deps["lit-element"]) {
+  if (deps.lit || deps["lit-element"] || deps["lit-html"]) {
     return { name: "lit", entry: exists("src/my-element.ts") ? "src/my-element.ts" : "src/App.ts" };
   }
-  if (deps.nuxt || deps["@nuxt/kit"] || deps.vue) {
-    return { name: deps.nuxt ? "nuxt" : "vue", entry: exists("app.vue") ? "app.vue" : "src/App.vue" };
+  if (deps["weex-vue-framework"] || deps.weex) {
+    return { name: "weex", entry: exists("src/App.vue") ? "src/App.vue" : "app.vue" };
   }
-  if (deps.svelte || deps["@sveltejs/kit"]) {
+  if (deps.alpinejs || deps.Alpine) {
+    return {
+      name: "alpine",
+      entry: exists("index.html") ? "index.html" : "src/index.html",
+    };
+  }
+  if (deps.svelte) {
     return { name: "svelte", entry: exists("src/App.svelte") ? "src/App.svelte" : "src/routes/+page.svelte" };
   }
-  if (deps.next) {
-    return {
-      name: "next",
-      entry: exists("app/page.tsx") ? "app/page.tsx" : "pages/index.tsx",
-    };
+  if (deps.vue || deps.pinia) {
+    return { name: "vue", entry: exists("app.vue") ? "app.vue" : "src/App.vue" };
   }
   if (deps.preact) {
     return { name: "preact", entry: exists("src/app.tsx") ? "src/app.tsx" : "src/App.tsx" };
   }
-  if (deps.vite || deps.react) {
-    return { name: deps.react ? "react" : "vite", entry: "src/App.tsx" };
+  if (deps.react || deps["react-dom"]) {
+    return { name: "react", entry: "src/App.tsx" };
   }
-  // Generic: first matching entry among known patterns
+  if (deps.vite) {
+    return { name: "vite", entry: "src/App.tsx" };
+  }
   const candidates = [
     "src/App.tsx",
     "src/App.jsx",
@@ -1250,6 +1382,11 @@ Edit \`src/App.tsx\`, \`src/state.ts\`, \`aether.bindings.json\`.
 function main() {
   if (COMMAND === "create") return handleCreateCommand();
   if (COMMAND === "migrate") return handleMigrateCommand();
+  if (COMMAND === "doctor") {
+    const doctor = path.resolve(FRAMEWORK_ROOT, "scripts/doctor.mjs");
+    const r = spawnSync(process.execPath, [doctor], { stdio: "inherit" });
+    process.exit(r.status ?? 1);
+  }
   if (COMMAND === "build") return runCompilation(() => writeProductionBundle());
   if (COMMAND === "deploy") {
     return runCompilation(() => {

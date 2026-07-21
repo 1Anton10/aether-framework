@@ -1,0 +1,25 @@
+{
+  "generatedAt": "2026-07-21T19:54:50.484Z",
+  "platform": "win32",
+  "arch": "x64",
+  "node": "v22.22.3",
+  "dag": {
+    "edges": 50000,
+    "fullScanMs": 17.332,
+    "dirtyFanoutMs": 0.054,
+    "hits": 5000,
+    "speedup": 319.8,
+    "gate": true
+  },
+  "wire": {
+    "dirtySlots": 64,
+    "iterations": 10000,
+    "jsonBytesPerFrame": 1489,
+    "binaryBytesPerFrame": 768,
+    "jsonEncodeMs": 34.08,
+    "binaryEncodeMs": 0.214,
+    "bytesRatio": 1.94,
+    "encodeSpeedup": 159.4
+  },
+  "note": "Independent machine numbers — re-run with npm run bench:public"
+}
