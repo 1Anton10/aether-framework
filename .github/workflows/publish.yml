@@ -31,8 +31,14 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          set -e
+          set -euo pipefail
           for pkg in aether-std aether_runtime aether_ssr aether_cli create-aether vite-plugin-aether aether-adapter aether-compat-react aether-compat-vue aether-compat-svelte aether-compat-solid aether-compat-qwik aether-compat-lit aether-compat-angular; do
-            echo "Publishing $pkg…"
+            ver=$(npm pkg get version -w "$pkg" | tr -d '"')
+            if npm view "$pkg@$ver" version >/dev/null 2>&1; then
+              echo "Skip $pkg@$ver (already on npm)"
+              continue
+            fi
+            echo "Publishing $pkg@$ver…"
             npm publish --workspace "$pkg" --access public --provenance || npm publish --workspace "$pkg" --access public
+            sleep 20
           done
