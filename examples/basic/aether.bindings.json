@@ -1,10 +1,14 @@
 {
   "derived": [
-    { "target": "doubled", "from": "count", "op": "mul", "arg": 2 }
+    { "target": "doubled", "from": "count", "op": "mul", "arg": 2 },
+    { "target": "score", "from": "doubled", "op": "mul", "arg": 10 }
   ],
   "handlers": {
-    "inc_count": { "op": "inc", "slot": "count" },
-    "server_inc_count": { "op": "inc", "slot": "count", "server": true },
-    "load_remote": { "op": "perform", "effect": "db.get", "into": "remote" }
+    "inc_count": { "op": "inc", "slot": "count", "delta": 1 },
+    "dec_count": { "op": "inc", "slot": "count", "delta": -1 },
+    "reset_count": { "op": "set", "slot": "count", "delta": 0 },
+    "server_inc_count": { "op": "inc", "slot": "count", "server": true, "delta": 1 },
+    "load_remote": { "op": "perform", "effect": "db.get", "into": "remote" },
+    "ping_effect": { "op": "perform", "effect": "ping", "into": "latency" }
   }
 }

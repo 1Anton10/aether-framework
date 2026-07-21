@@ -275,6 +275,18 @@ impl WasmGenerator {
                     emitted.insert(name.clone(), next_fn_index);
                     next_fn_index += 1;
                 }
+                EffectOp::LocalSet { slot, value } => {
+                    functions.function(2);
+                    let mut f = Function::new(vec![]);
+                    f.instruction(&Instruction::I32Const(slot.0 as i32));
+                    f.instruction(&Instruction::I32Const(*value));
+                    f.instruction(&Instruction::Call(APPLY_DELTA_FN));
+                    f.instruction(&Instruction::End);
+                    code.function(&f);
+                    exports.export(name, ExportKind::Func, next_fn_index);
+                    emitted.insert(name.clone(), next_fn_index);
+                    next_fn_index += 1;
+                }
                 EffectOp::ServerMutate { .. } => {
                     functions.function(2);
                     let mut f = Function::new(vec![]);

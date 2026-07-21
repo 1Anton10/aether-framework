@@ -130,7 +130,8 @@ function renderAttrs(
   let out = "";
   for (const [key, binding] of Object.entries(props)) {
     const value = resolveBinding(binding, program, slotValues);
-    if (value !== "") out += ` ${key}="${escapeAttr(value)}"`;
+    const attr = key === "className" ? "class" : key;
+    if (value !== "") out += ` ${attr}="${escapeAttr(value)}"`;
   }
   return out;
 }

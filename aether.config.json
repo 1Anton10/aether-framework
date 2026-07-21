@@ -22,6 +22,7 @@
     "/app": { "type": "app" }
   },
   "effects": {
-    "db.get": { "type": "add", "arg": 100 }
+    "db.get": { "type": "add", "arg": 100 },
+    "ping": { "type": "add", "arg": 12 }
   }
 }

@@ -1,5 +1,7 @@
 export const initialState = {
-  count: 0,
-  doubled: 0,
+  count: 3,
+  doubled: 6,
+  score: 60,
   remote: 0,
+  latency: 0,
 };

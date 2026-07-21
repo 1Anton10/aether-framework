@@ -83,6 +83,7 @@ interface DerivedSlot {
 }
 interface EffectOp {
   LocalMutate?: { slot: Id; delta: number };
+  LocalSet?: { slot: Id; value: number };
   ServerMutate?: { slot: Id; action: string; delta: number };
   Perform?: { effect: string; resume_slot: Id };
 }
@@ -607,10 +608,11 @@ export class AetherRuntime {
       const el = document.createElement(String(tag).toLowerCase());
       if (props) {
         for (const [k, v] of Object.entries(props) as [string, any][]) {
-          if (v.Static !== undefined) el.setAttribute(k, v.Static);
+          const attr = k === "className" ? "class" : k;
+          if (v.Static !== undefined) el.setAttribute(attr, v.Static);
           else if (v.Reactive !== undefined) {
             const slot = this.program.slots.find((s) => s.name === v.Reactive);
-            if (slot) el.setAttribute(k, String(this.slotValue(nid(slot.id))));
+            if (slot) el.setAttribute(attr, String(this.slotValue(nid(slot.id))));
           }
         }
       }
@@ -682,9 +684,18 @@ export class AetherRuntime {
 
       if (this.exports[handlerName]) {
         this.exports[handlerName]();
-        const slot = effect?.LocalMutate ? nid(effect.LocalMutate.slot) : 0;
+        const slot = effect?.LocalMutate
+          ? nid(effect.LocalMutate.slot)
+          : effect?.LocalSet
+            ? nid(effect.LocalSet.slot)
+            : 0;
         this.recomputeDerivedFrom(slot);
         for (const s of this.dirtyClosure(slot)) this.queue?.mark(s);
+        return;
+      }
+
+      if (effect?.LocalSet) {
+        this.applyHostDelta(nid(effect.LocalSet.slot), effect.LocalSet.value ?? 0);
         return;
       }
 

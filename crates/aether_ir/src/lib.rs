@@ -104,6 +104,7 @@ pub struct DerivedSlot {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub enum EffectOp {
     LocalMutate { slot: SlotId, delta: i32 },
+    LocalSet { slot: SlotId, value: i32 },
     ServerMutate {
         slot: SlotId,
         action: String,
@@ -411,6 +412,14 @@ fn binding_to_op(h: &HandlerBinding, slots: &HashMap<String, SlotId>) -> Option<
             } else {
                 Some(EffectOp::LocalMutate { slot, delta })
             }
+        }
+        "set" => {
+            let slot_name = h.slot.as_ref()?;
+            let slot = *slots.get(slot_name)?;
+            Some(EffectOp::LocalSet {
+                slot,
+                value: h.delta.unwrap_or(0),
+            })
         }
         _ => None,
     }

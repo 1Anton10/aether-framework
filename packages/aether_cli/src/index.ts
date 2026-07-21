@@ -315,13 +315,67 @@ function appHtml(snapshot: Uint8Array): string {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Aether App</title>
+  <title>Aether Live Playground</title>
   <meta name="aether-ssr" content="${ssrBody ? "1" : "0"}" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <script src="/runtime.js?v=${Date.now()}" defer></script>
   <style>
-    body{margin:0;padding:2rem;font-family:system-ui,sans-serif;background:#0c1118;color:#e8eef6}
-    a{color:#5eead4}
-    button{margin-right:.5rem;margin-top:.5rem;padding:.5rem .9rem;cursor:pointer}
+    :root {
+      --bg:#07090d; --elev:#10151d; --ink:#eef2f7; --muted:#8b95a8;
+      --line:#1c2430; --accent:#5eead4; --accent-ink:#042f2e; --warm:#fbbf24;
+    }
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{
+      font-family:"Sora",system-ui,sans-serif;color:var(--ink);min-height:100vh;
+      background:
+        radial-gradient(900px 480px at 90% -20%, #134e4a55, transparent 55%),
+        radial-gradient(700px 400px at -10% 30%, #1e293b66, transparent 50%),
+        var(--bg);
+      line-height:1.5;
+    }
+    #root{min-height:100vh}
+    .ae-shell{width:min(1100px,calc(100% - 2rem));margin:0 auto;padding:1.25rem 0 3rem}
+    .ae-top{display:flex;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:2rem}
+    .ae-brand{font-family:"JetBrains Mono",monospace;font-weight:500;color:var(--ink);text-decoration:none;font-size:1.1rem;letter-spacing:-0.03em}
+    .ae-badge{font-size:0.75rem;padding:0.25rem 0.55rem;border-radius:999px;background:#134e4a;color:var(--accent);font-weight:600}
+    .ae-link{color:var(--muted);text-decoration:none;font-size:0.9rem;margin-left:auto}
+    .ae-link+ .ae-link{margin-left:0}
+    .ae-top .ae-link:first-of-type{margin-left:auto}
+    .ae-hero{margin-bottom:1.75rem}
+    .ae-eyebrow{color:var(--accent);font-size:0.8rem;text-transform:uppercase;letter-spacing:0.1em;font-weight:600;margin-bottom:0.6rem}
+    .ae-title{font-size:clamp(1.8rem,4vw,2.6rem);letter-spacing:-0.04em;margin-bottom:0.5rem}
+    .ae-lead{color:var(--muted);max-width:40rem}
+    .ae-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:1rem}
+    .ae-card{
+      background:var(--elev);border:1px solid var(--line);border-radius:0.65rem;padding:1.2rem 1.25rem;
+    }
+    .ae-card-hero{border-color:#134e4a99;box-shadow:0 0 40px #134e4a22}
+    .ae-card-wide{grid-column:1 / -1}
+    .ae-card h2{font-size:1rem;margin-bottom:0.35rem}
+    .ae-desc{color:var(--muted);font-size:0.88rem;margin-bottom:1rem}
+    .ae-metric{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:1rem}
+    .ae-metric-label{color:var(--muted);font-size:0.85rem}
+    .ae-metric-value{font-family:"JetBrains Mono",monospace;font-size:2.75rem;font-weight:500;color:var(--accent);letter-spacing:-0.04em}
+    .ae-row{display:flex;justify-content:space-between;gap:1rem;padding:0.45rem 0;border-bottom:1px solid var(--line);font-size:0.92rem;color:var(--muted)}
+    .ae-row:last-of-type{border-bottom:0;margin-bottom:0.75rem}
+    .ae-row strong{color:var(--ink);font-family:"JetBrains Mono",monospace;font-weight:500}
+    .ae-actions{display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:0.5rem}
+    button{
+      font-family:inherit;font-weight:600;font-size:0.88rem;cursor:pointer;
+      padding:0.55rem 0.9rem;border-radius:0.4rem;border:1px solid var(--line);
+      background:#161c26;color:var(--ink);transition:border-color .15s,transform .15s;
+    }
+    button:hover{border-color:var(--accent);transform:translateY(-1px)}
+    .ae-chips{display:flex;flex-wrap:wrap;gap:0.45rem;margin:0.75rem 0}
+    .ae-chips span{
+      font-size:0.78rem;padding:0.3rem 0.55rem;border-radius:0.35rem;
+      background:#0c1219;border:1px solid var(--line);color:var(--accent);
+      font-family:"JetBrains Mono",monospace;
+    }
+    .ae-foot{color:var(--muted);font-size:0.85rem;margin-top:0.5rem}
+    @media(max-width:720px){.ae-grid{grid-template-columns:1fr}.ae-card-wide{grid-column:auto}}
   </style>
 </head>
 <body>
