@@ -1,0 +1,1017 @@
+import { execFile } from "child_process";
+import * as crypto from "crypto";
+import * as fs from "fs";
+import * as http from "http";
+import * as path from "path";
+import { fileURLToPath } from "url";
+import type { Duplex } from "stream";
+
+type AetherConfig = {
+  root?: string;
+  entry?: string;
+  state?: string;
+  bindings?: string;
+  componentsDir?: string;
+  outDir?: string;
+  watch?: string[];
+  wasmgc?: boolean;
+  server?: { port?: number; host?: string };
+  site?: { landing?: string; publicDir?: string };
+  routes?: Record<string, { type: string; file?: string }>;
+  effects?: Record<string, { type: string; arg?: number }>;
+};
+
+function findConfigDir(start: string): string {
+  let current = start;
+  while (current !== path.parse(current).root) {
+    if (fs.existsSync(path.join(current, "aether.config.json"))) return current;
+    if (fs.existsSync(path.join(current, "Cargo.toml"))) return current;
+    current = path.dirname(current);
+  }
+  return start;
+}
+
+/** Prefer cwd project config; fall back to framework monorepo. */
+function resolveConfigDir(): string {
+  const cwd = process.cwd();
+  if (fs.existsSync(path.join(cwd, "aether.config.json"))) return cwd;
+  return findConfigDir(path.resolve(__dirname, "../.."));
+}
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const CONFIG_DIR = resolveConfigDir();
+const CONFIG_PATH = path.join(CONFIG_DIR, "aether.config.json");
+
+/** Framework root (compiler + runtime) — app may live elsewhere. */
+function resolveFrameworkRoot(): string {
+  const fromPkg = (() => {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf-8"));
+      if (pkg.aether?.framework) return path.resolve(pkg.aether.framework);
+    } catch {
+      /* */
+    }
+    return "";
+  })();
+  if (fromPkg && fs.existsSync(fromPkg)) return fromPkg;
+  // Walk from CLI location to Cargo.toml monorepo
+  return findConfigDir(path.resolve(__dirname, "../.."));
+}
+
+const FRAMEWORK_ROOT = resolveFrameworkRoot();
+
+function loadConfig(): AetherConfig {
+  if (!fs.existsSync(CONFIG_PATH)) return {};
+  return JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8"));
+}
+
+const config = loadConfig();
+const PROJECT_ROOT = path.resolve(CONFIG_DIR, config.root || ".");
+const OUT_DIR = path.resolve(PROJECT_ROOT, config.outDir || "dist");
+const ENTRY = path.resolve(PROJECT_ROOT, config.entry || "src/App.tsx");
+const STATE_PATH = path.resolve(PROJECT_ROOT, config.state || "src/state.ts");
+const BINDINGS_PATH = path.resolve(
+  PROJECT_ROOT,
+  config.bindings || "aether.bindings.json"
+);
+const COMPONENTS_DIR = config.componentsDir || "src";
+const PORT = Number(process.env.PORT || config.server?.port || 3000);
+const LANDING = path.resolve(
+  PROJECT_ROOT,
+  config.site?.landing || "site/index.html"
+);
+const PUBLIC_DIR = path.resolve(
+  PROJECT_ROOT,
+  config.site?.publicDir || "site"
+);
+
+const args = process.argv.slice(2);
+const COMMAND = args[0] || "start";
+
+let program: any = null;
+let serverMemory = new Uint8Array(8);
+const liveClients: http.ServerResponse[] = [];
+let watchTimer: ReturnType<typeof setTimeout> | null = null;
+const dsmSockets = new Set<Duplex>();
+
+function nid(id: any): number {
+  return typeof id === "number" ? id : id?.["0"] ?? 0;
+}
+
+function encodeDeltas(deltas: Array<[number, number]>): Buffer {
+  const buf = Buffer.alloc(deltas.length * 12);
+  let o = 0;
+  for (const [slot, value] of deltas) {
+    buf.writeUInt32LE(slot, o);
+    buf.writeUInt32LE(4, o + 4);
+    buf.writeInt32LE(value, o + 8);
+    o += 12;
+  }
+  return buf;
+}
+
+function decodeDeltas(bytes: Buffer): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  let i = 0;
+  while (i + 8 <= bytes.length) {
+    const slot = bytes.readUInt32LE(i);
+    const len = bytes.readUInt32LE(i + 4);
+    i += 8;
+    if (i + len > bytes.length) break;
+    out.push([slot, len >= 4 ? bytes.readInt32LE(i) : 0]);
+    i += len;
+  }
+  return out;
+}
+
+function decodeEffectRequest(bytes: Buffer) {
+  if (bytes.length < 2) return null;
+  const n = bytes.readUInt16LE(0);
+  if (bytes.length < 2 + n + 8) return null;
+  return {
+    effect: bytes.subarray(2, 2 + n).toString("utf8"),
+    resume: bytes.readUInt32LE(2 + n),
+    payload: bytes.readInt32LE(2 + n + 4),
+  };
+}
+
+function wsAcceptKey(key: string): string {
+  return crypto
+    .createHash("sha1")
+    .update(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")
+    .digest("base64");
+}
+
+function wsEncodeBinary(payload: Buffer): Buffer {
+  const len = payload.length;
+  let header: Buffer;
+  if (len < 126) {
+    header = Buffer.alloc(2);
+    header[0] = 0x82;
+    header[1] = len;
+  } else if (len < 65536) {
+    header = Buffer.alloc(4);
+    header[0] = 0x82;
+    header[1] = 126;
+    header.writeUInt16BE(len, 2);
+  } else {
+    header = Buffer.alloc(10);
+    header[0] = 0x82;
+    header[1] = 127;
+    header.writeBigUInt64BE(BigInt(len), 2);
+  }
+  return Buffer.concat([header, payload]);
+}
+
+function wsDecodeFrames(buf: Buffer): { messages: Buffer[]; rest: Buffer } {
+  const messages: Buffer[] = [];
+  let i = 0;
+  while (i + 2 <= buf.length) {
+    const b1 = buf[i + 1];
+    const opcode = buf[i] & 0x0f;
+    const masked = (b1 & 0x80) !== 0;
+    let len = b1 & 0x7f;
+    let off = i + 2;
+    if (len === 126) {
+      if (off + 2 > buf.length) break;
+      len = buf.readUInt16BE(off);
+      off += 2;
+    } else if (len === 127) {
+      if (off + 8 > buf.length) break;
+      len = Number(buf.readBigUInt64BE(off));
+      off += 8;
+    }
+    const maskOff = masked ? off : -1;
+    if (masked) off += 4;
+    if (off + len > buf.length) break;
+    let payload = buf.subarray(off, off + len);
+    if (masked && maskOff >= 0) {
+      const mask = buf.subarray(maskOff, maskOff + 4);
+      const copy = Buffer.from(payload);
+      for (let j = 0; j < copy.length; j++) copy[j] ^= mask[j % 4];
+      payload = copy;
+    }
+    if (opcode === 0x1 || opcode === 0x2) messages.push(Buffer.from(payload));
+    i = off + len;
+  }
+  return { messages, rest: buf.subarray(i) };
+}
+
+function loadInitialState(): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (!fs.existsSync(STATE_PATH)) return out;
+  const src = fs.readFileSync(STATE_PATH, "utf-8");
+  const m = src.match(/initialState\s*=\s*\{([^}]*)\}/s);
+  if (m) {
+    for (const part of m[1].split(",")) {
+      const kv = part.match(/(\w+)\s*:\s*(-?\d+)/);
+      if (kv) out[kv[1]] = Number(kv[2]);
+    }
+  }
+  return out;
+}
+
+function initMemory(prog: any, initial: Record<string, number>) {
+  const mem = Buffer.alloc(prog.memory_bytes);
+  mem.writeUInt32LE(0x52485441, 0);
+  mem.writeUInt32LE(prog.slots.length, 4);
+  for (const slot of prog.slots) {
+    mem.writeInt32LE(initial[slot.name] ?? 0, slot.offset);
+  }
+  for (const d of prog.derived || []) {
+    const target = prog.slots.find((s: any) => nid(s.id) === nid(d.target));
+    const src = prog.slots.find((s: any) => nid(s.id) === nid(d.sources?.[0]));
+    if (!target || !src) continue;
+    const v = mem.readInt32LE(src.offset);
+    let out = v;
+    if (d.op?.Mul != null) out = v * d.op.Mul;
+    else if (d.op?.Add != null) out = v + d.op.Add;
+    mem.writeInt32LE(out, target.offset);
+  }
+  serverMemory = new Uint8Array(mem);
+}
+
+function applyDeltas(deltas: Array<[number, number]>) {
+  const applied: Array<[number, number]> = [];
+  if (!program) return applied;
+  const view = Buffer.from(serverMemory.buffer);
+  for (const [slotId, value] of deltas) {
+    const slot = program.slots.find((s: any) => nid(s.id) === slotId);
+    if (!slot) continue;
+    view.writeInt32LE(value, slot.offset);
+    applied.push([slotId, value]);
+  }
+  for (const d of program.derived || []) {
+    const target = program.slots.find((s: any) => nid(s.id) === nid(d.target));
+    const src = program.slots.find((s: any) => nid(s.id) === nid(d.sources?.[0]));
+    if (!target || !src) continue;
+    const v = view.readInt32LE(src.offset);
+    let out = v;
+    if (d.op?.Mul != null) out = v * d.op.Mul;
+    else if (d.op?.Add != null) out = v + d.op.Add;
+    view.writeInt32LE(out, target.offset);
+    applied.push([nid(d.target), out]);
+  }
+  return applied;
+}
+
+function runEffectHandler(effect: string, payload: number): number {
+  const spec = config.effects?.[effect] || config.effects?.[effect.replace(".", "_")];
+  if (!spec) return payload;
+  if (spec.type === "add") return payload + (spec.arg ?? 0);
+  if (spec.type === "mul") return payload * (spec.arg ?? 1);
+  return payload;
+}
+
+function handleEffect(bytes: Buffer) {
+  const req = decodeEffectRequest(bytes);
+  if (!req || !program) return [] as Array<[number, number]>;
+  const value = runEffectHandler(req.effect, req.payload);
+  return applyDeltas([[req.resume, value]]);
+}
+
+function broadcastDsm(buf: Buffer) {
+  const frame = wsEncodeBinary(buf);
+  for (const sock of dsmSockets) {
+    try {
+      sock.write(frame);
+    } catch {
+      dsmSockets.delete(sock);
+    }
+  }
+}
+
+function appHtml(snapshot: Uint8Array): string {
+  const b64 = Buffer.from(snapshot).toString("base64");
+  return `<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Aether App</title>
+  <script src="/runtime.js?v=${Date.now()}" defer></script>
+  <style>
+    body{margin:0;padding:2rem;font-family:system-ui,sans-serif;background:#0c1118;color:#e8eef6}
+    a{color:#3ddc97}
+    button{margin-right:.5rem;margin-top:.5rem;padding:.5rem .9rem;cursor:pointer}
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="aether/snapshot" data-encoding="base64">${b64}</script>
+</body>
+</html>`;
+}
+
+function compilerBinary(): string {
+  const candidates = [
+    process.env.CARGO_TARGET_DIR
+      ? path.join(process.env.CARGO_TARGET_DIR, "debug", "aether-compile.exe")
+      : "",
+    path.resolve(FRAMEWORK_ROOT, "target/debug/aether-compile.exe"),
+    path.resolve(FRAMEWORK_ROOT, "target/debug/aether-compile"),
+    path.resolve(CONFIG_DIR, "target/debug/aether-compile.exe"),
+    path.resolve(CONFIG_DIR, "target/debug/aether-compile"),
+  ].filter(Boolean);
+  for (const c of candidates) if (fs.existsSync(c)) return c;
+  return "aether-compile";
+}
+
+function runtimePath(): string {
+  return path.resolve(FRAMEWORK_ROOT, "packages/aether_runtime/dist/index.global.js");
+}
+
+function notifyLiveReload() {
+  for (const res of liveClients.splice(0)) {
+    try {
+      res.write("data: reload\n\n");
+      res.end();
+    } catch {
+      /* */
+    }
+  }
+}
+
+function resolveRoute(urlPath: string): { type: string; file?: string } {
+  const routes = config.routes || {
+    "/": { type: "static", file: config.site?.landing || "site/index.html" },
+    "/demo": { type: "app" },
+    "/app": { type: "app" },
+  };
+  if (routes[urlPath]) return routes[urlPath];
+  // strip query
+  const clean = urlPath.split("?")[0];
+  if (routes[clean]) return routes[clean];
+  return { type: "static", file: config.site?.landing || "site/index.html" };
+}
+
+function startDevServer() {
+  const server = http.createServer((req, res) => {
+    const url = (req.url || "/").split("?")[0];
+
+    if (url.startsWith("/api/live-reload")) {
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      });
+      res.write("\n");
+      liveClients.push(res);
+      req.on("close", () => {
+        const i = liveClients.indexOf(res);
+        if (i >= 0) liveClients.splice(i, 1);
+      });
+      return;
+    }
+
+    if (url === "/api/delta" && req.method === "POST") {
+      const chunks: Buffer[] = [];
+      req.on("data", (c) => chunks.push(c));
+      req.on("end", () => {
+        let deltas = decodeDeltas(Buffer.concat(chunks));
+        const action = req.headers["x-aether-action"] as string | undefined;
+        if (deltas.length === 0 && action && program?.effects?.[action]) {
+          const effect = program.effects[action];
+          const mutate = effect.ServerMutate || effect.LocalMutate;
+          if (mutate) {
+            const slotId = nid(mutate.slot);
+            const slot = program.slots.find((s: any) => nid(s.id) === slotId);
+            const delta = mutate.delta ?? 1;
+            if (slot) {
+              const cur = Buffer.from(serverMemory.buffer).readInt32LE(slot.offset);
+              deltas = [[slotId, cur + delta]];
+            }
+          }
+        }
+        const applied = applyDeltas(deltas);
+        const out = encodeDeltas(applied);
+        broadcastDsm(out);
+        res.writeHead(200, { "Content-Type": "application/octet-stream" });
+        res.end(out);
+      });
+      return;
+    }
+
+    if (url === "/api/effect" && req.method === "POST") {
+      const chunks: Buffer[] = [];
+      req.on("data", (c) => chunks.push(c));
+      req.on("end", () => {
+        const out = encodeDeltas(handleEffect(Buffer.concat(chunks)));
+        broadcastDsm(out);
+        res.writeHead(200, { "Content-Type": "application/octet-stream" });
+        res.end(out);
+      });
+      return;
+    }
+
+    if (url.startsWith("/runtime.js")) {
+      const p = runtimePath();
+      if (fs.existsSync(p)) {
+        res.writeHead(200, { "Content-Type": "application/javascript; charset=utf-8" });
+        res.end(fs.readFileSync(p));
+        return;
+      }
+    }
+
+    if (url === "/app.wasm" || url === "/app.gc.wasm") {
+      const p = path.join(OUT_DIR, path.basename(url));
+      if (fs.existsSync(p)) {
+        res.writeHead(200, { "Content-Type": "application/wasm" });
+        res.end(fs.readFileSync(p));
+        return;
+      }
+    }
+
+    if (url === "/aether.program.json") {
+      const p = path.join(OUT_DIR, "aether.program.json");
+      if (fs.existsSync(p)) {
+        res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+        res.end(fs.readFileSync(p));
+        return;
+      }
+    }
+
+    // static site assets
+    if (url !== "/" && !url.startsWith("/api") && !url.startsWith("/demo") && !url.startsWith("/app")) {
+      const filePath = path.join(PUBLIC_DIR, url.replace(/^\//, ""));
+      if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+        const ext = path.extname(filePath).toLowerCase();
+        const types: Record<string, string> = {
+          ".html": "text/html; charset=utf-8",
+          ".css": "text/css; charset=utf-8",
+          ".js": "application/javascript; charset=utf-8",
+          ".svg": "image/svg+xml",
+          ".json": "application/json",
+        };
+        res.writeHead(200, { "Content-Type": types[ext] || "application/octet-stream" });
+        res.end(fs.readFileSync(filePath));
+        return;
+      }
+    }
+
+    const route = resolveRoute(url);
+    if (route.type === "app") {
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(appHtml(serverMemory));
+      return;
+    }
+
+    const file = path.resolve(PROJECT_ROOT, route.file || LANDING);
+    if (fs.existsSync(file)) {
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(fs.readFileSync(file));
+      return;
+    }
+
+    res.writeHead(404, { "Content-Type": "text/plain" });
+    res.end("Not found");
+  });
+
+  server.on("upgrade", (req, socket) => {
+    const u = req.url || "";
+    if (!u.startsWith("/api/dsm") && !u.startsWith("/aether-dsm")) {
+      socket.destroy();
+      return;
+    }
+    const key = req.headers["sec-websocket-key"];
+    if (!key || Array.isArray(key)) {
+      socket.destroy();
+      return;
+    }
+    socket.write(
+      "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
+        `Sec-WebSocket-Accept: ${wsAcceptKey(key)}\r\n\r\n`
+    );
+    dsmSockets.add(socket);
+    let buf = Buffer.alloc(0);
+    socket.on("data", (chunk) => {
+      buf = Buffer.concat([buf, chunk]);
+      const { messages, rest } = wsDecodeFrames(buf);
+      buf = rest;
+      for (const msg of messages) {
+        const out =
+          msg[0] === 0xef
+            ? encodeDeltas(handleEffect(msg.subarray(1)))
+            : encodeDeltas(applyDeltas(decodeDeltas(msg)));
+        socket.write(wsEncodeBinary(out));
+        broadcastDsm(out);
+      }
+    });
+    socket.on("close", () => dsmSockets.delete(socket));
+    socket.on("error", () => dsmSockets.delete(socket));
+  });
+
+  const watchPaths = (config.watch || [path.dirname(ENTRY)]).map((p) =>
+    path.resolve(PROJECT_ROOT, p)
+  );
+  for (const w of watchPaths) {
+    if (!fs.existsSync(w)) continue;
+    fs.watch(w, { recursive: true }, (_e, filename) => {
+      if (!filename) return;
+      if (watchTimer) clearTimeout(watchTimer);
+      watchTimer = setTimeout(() => {
+        console.log(`[Aether HMR] ${filename}`);
+        runCompilation(() => notifyLiveReload(), false);
+      }, 120);
+    });
+  }
+
+  server.listen(PORT, () => {
+    console.log(`Aether http://localhost:${PORT}  (landing / · app /demo)`);
+    console.log(`  entry=${path.relative(PROJECT_ROOT, ENTRY)}`);
+    console.log(`  outDir=${OUT_DIR}`);
+    console.log(`  DSM: WS /aether-dsm · /api/dsm · HTTP /api/delta`);
+    if (process.env.AETHER_TLS_CERT && process.env.AETHER_TLS_KEY) {
+      void startHttp3WebTransport();
+    }
+  });
+}
+
+/** Optional HTTP/3 WebTransport server when TLS certs are provided. */
+async function startHttp3WebTransport() {
+  const cert = process.env.AETHER_TLS_CERT!;
+  const key = process.env.AETHER_TLS_KEY!;
+  const wtPort = Number(process.env.AETHER_WT_PORT || 4433);
+  try {
+    // Dynamic import — optional peer dep for real HTTP/3.
+    const mod: any = await import("@fails-components/webtransport").catch(() => null);
+    if (!mod?.Http3Server) {
+      console.log(
+        "[Aether WT] set AETHER_TLS_* and install @fails-components/webtransport for native HTTP/3"
+      );
+      return;
+    }
+    const server = new mod.Http3Server({
+      port: wtPort,
+      host: "0.0.0.0",
+      secret: "aether-dsm",
+      cert,
+      privKey: key,
+    });
+    server.startServer();
+    console.log(`[Aether WT] HTTP/3 WebTransport on :${wtPort}/aether-dsm`);
+    void (async () => {
+      const sessionStream = await server.sessionStream("/aether-dsm");
+      const reader = sessionStream.getReader();
+      while (true) {
+        const { value: session, done } = await reader.read();
+        if (done) break;
+        try {
+          await session.ready;
+          const dgReader = session.datagrams.readable.getReader();
+          const dgWriter = session.datagrams.writable.getWriter();
+          while (true) {
+            const { value, done: d2 } = await dgReader.read();
+            if (d2) break;
+            if (!value) continue;
+            const msg = Buffer.from(value);
+            const out =
+              msg[0] === 0xef
+                ? encodeDeltas(handleEffect(msg.subarray(1)))
+                : encodeDeltas(applyDeltas(decodeDeltas(msg)));
+            await dgWriter.write(out);
+            broadcastDsm(out);
+          }
+        } catch {
+          /* session ended */
+        }
+      }
+    })();
+  } catch (e: any) {
+    console.warn("[Aether WT] HTTP/3 unavailable:", e?.message || e);
+  }
+}
+
+function runCompilation(callback?: () => void, exitOnError = true) {
+  if (!fs.existsSync(ENTRY)) {
+    console.error("entry not found:", ENTRY);
+    if (exitOnError) process.exit(1);
+    return;
+  }
+  const bin = compilerBinary();
+  if (!fs.existsSync(bin)) {
+    console.error("compiler missing — cargo build -p aether_compiler");
+    if (exitOnError) process.exit(1);
+    return;
+  }
+  fs.mkdirSync(OUT_DIR, { recursive: true });
+  const bindingsArg = fs.existsSync(BINDINGS_PATH) ? BINDINGS_PATH : "";
+  // Prefer --file so shells never mangle JSX `<...>`
+  const compileArgs = ["--file", ENTRY, PROJECT_ROOT, OUT_DIR];
+  if (bindingsArg) compileArgs.push(bindingsArg);
+
+  const env = {
+    ...process.env,
+    AETHER_PROJECT_ROOT: PROJECT_ROOT,
+    AETHER_COMPONENTS_DIR: COMPONENTS_DIR,
+    CARGO_TARGET_DIR:
+      process.env.CARGO_TARGET_DIR || path.join(FRAMEWORK_ROOT, "target"),
+  };
+  if (bindingsArg) (env as any).AETHER_BINDINGS = bindingsArg;
+  if (config.wasmgc) (env as any).AETHER_WASMGC = "1";
+
+  execFile(bin, compileArgs, { encoding: "buffer", maxBuffer: 20 << 20, env }, (error, stdout, stderr) => {
+    if (error) {
+      console.error("compile failed", error.message);
+      if (stderr?.length) console.error(stderr.toString("utf-8"));
+      if (exitOnError) process.exit(1);
+      return;
+    }
+    program = JSON.parse(stdout.toString("utf-8").trim());
+    initMemory(program, loadInitialState());
+    console.log(
+      `[Aether] slots=${program.slots.length} derived=${(program.derived || []).length} handlers=${Object.keys(program.effects || {}).join(",") || "—"}`
+    );
+    callback?.();
+  });
+}
+
+function writeProductionBundle() {
+  const dist = path.resolve(PROJECT_ROOT, "dist_production");
+  fs.mkdirSync(dist, { recursive: true });
+  for (const f of ["app.wasm", "app.gc.wasm", "aether.program.json"]) {
+    const src = path.join(OUT_DIR, f);
+    if (fs.existsSync(src)) fs.copyFileSync(src, path.join(dist, f));
+  }
+  const rt = runtimePath();
+  if (fs.existsSync(rt)) fs.copyFileSync(rt, path.join(dist, "runtime.js"));
+  if (fs.existsSync(LANDING)) fs.copyFileSync(LANDING, path.join(dist, "index.html"));
+  fs.writeFileSync(path.join(dist, "demo.html"), appHtml(serverMemory));
+  console.log(`[Aether] build → ${dist}`);
+}
+
+function handleMigrateCommand() {
+  const cwd = process.cwd();
+  const pkgPath = path.join(cwd, "package.json");
+  if (!fs.existsSync(pkgPath)) {
+    console.error("migrate: package.json not found in cwd");
+    process.exit(1);
+  }
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+  const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
+
+  const detected = detectFramework(deps, cwd);
+  pkg.dependencies = pkg.dependencies || {};
+
+  // Alias common UI libs → Aether compat shims when present
+  const aliasMap: Record<string, string> = {
+    react: "aether-compat-react",
+    "react-dom": "aether-compat-react",
+    preact: "aether-compat-react",
+    vue: "aether-compat-vue",
+    solidjs: "aether-compat-solid",
+    "solid-js": "aether-compat-solid",
+    "@builder.io/qwik": "aether-compat-qwik",
+    lit: "aether-compat-lit",
+    "@angular/core": "aether-compat-angular",
+  };
+  for (const [from, to] of Object.entries(aliasMap)) {
+    if (deps[from] || pkg.dependencies[from]) {
+      delete pkg.dependencies[from];
+      pkg.dependencies[to] = "*";
+      pkg.overrides = pkg.overrides || {};
+      pkg.overrides[from] = to;
+    }
+  }
+
+  const entry = detected.entry;
+  const config = {
+    root: ".",
+    entry,
+    state: "src/state.ts",
+    bindings: "aether.bindings.json",
+    componentsDir: "src",
+    outDir: "dist",
+    watch: ["src"],
+    wasmgc: true,
+    server: { port: 3000 },
+    site: { landing: "index.html", publicDir: "public" },
+    routes: { "/": { type: "app" } },
+    effects: {},
+    migratedFrom: detected.name,
+    frontend: detected.name,
+  };
+  fs.writeFileSync(path.join(cwd, "aether.config.json"), JSON.stringify(config, null, 2));
+  if (!fs.existsSync(path.join(cwd, "aether.bindings.json"))) {
+    fs.writeFileSync(
+      path.join(cwd, "aether.bindings.json"),
+      JSON.stringify({ derived: [], handlers: {} }, null, 2)
+    );
+  }
+  if (!fs.existsSync(path.join(cwd, "src/state.ts"))) {
+    fs.mkdirSync(path.join(cwd, "src"), { recursive: true });
+    fs.writeFileSync(path.join(cwd, "src/state.ts"), "export const initialState = {};\n");
+  }
+
+  // Rewrite imports for aliased packages
+  const rewrites: Array<[RegExp, string]> = [
+    [/from ["']react["']/g, 'from "aether-compat-react"'],
+    [/from ["']react-dom\/client["']/g, 'from "aether-compat-react/client"'],
+    [/from ["']react-dom["']/g, 'from "aether-compat-react/client"'],
+    [/from ["']react\/jsx-runtime["']/g, 'from "aether-compat-react/jsx-runtime"'],
+    [/from ["']preact["']/g, 'from "aether-compat-react"'],
+    [/from ["']preact\/hooks["']/g, 'from "aether-compat-react"'],
+    [/from ["']vue["']/g, 'from "aether-compat-vue"'],
+    [/from ["']solid-js["']/g, 'from "aether-compat-solid"'],
+    [/from ["']@builder\.io\/qwik["']/g, 'from "aether-compat-qwik"'],
+    [/from ["']lit["']/g, 'from "aether-compat-lit"'],
+    [/from ["']@angular\/core["']/g, 'from "aether-compat-angular"'],
+  ];
+  const walk = (dir: string) => {
+    if (!fs.existsSync(dir)) return;
+    for (const name of fs.readdirSync(dir)) {
+      const p = path.join(dir, name);
+      const st = fs.statSync(p);
+      if (st.isDirectory()) {
+        if (name === "node_modules" || name === "dist") continue;
+        walk(p);
+      } else if (/\.(tsx?|jsx?|mjs|cjs|vue|svelte)$/.test(name)) {
+        let src = fs.readFileSync(p, "utf-8");
+        let next = src;
+        for (const [re, to] of rewrites) next = next.replace(re, to);
+        if (next !== src) fs.writeFileSync(p, next);
+      }
+    }
+  };
+  walk(cwd);
+
+  pkg.scripts = pkg.scripts || {};
+  pkg.scripts["dev:aether"] = "npm run start -w aether_cli";
+  fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
+  console.log(`[Aether migrate] wrote aether.config.json (from ${detected.name})`);
+  console.log(`[Aether migrate] entry=${entry}; compat aliases applied`);
+  console.log(`[Aether migrate] next: adapt routes/data to slots + bindings, then npm run dev:aether`);
+  process.exit(0);
+}
+
+function detectFramework(
+  deps: Record<string, string>,
+  cwd: string
+): { name: string; entry: string } {
+  const exists = (...parts: string[]) => fs.existsSync(path.join(cwd, ...parts));
+  if (deps["@angular/core"]) {
+    return {
+      name: "angular",
+      entry: exists("src/app/app.component.html")
+        ? "src/app/app.component.html"
+        : "src/app/app.component.ts",
+    };
+  }
+  if (deps["solid-js"] || deps.solidjs) {
+    return { name: "solid", entry: exists("src/App.tsx") ? "src/App.tsx" : "src/App.jsx" };
+  }
+  if (deps["@builder.io/qwik"]) {
+    return { name: "qwik", entry: exists("src/routes/index.tsx") ? "src/routes/index.tsx" : "src/app.tsx" };
+  }
+  if (deps.lit || deps["lit-element"]) {
+    return { name: "lit", entry: exists("src/my-element.ts") ? "src/my-element.ts" : "src/App.ts" };
+  }
+  if (deps.nuxt || deps["@nuxt/kit"] || deps.vue) {
+    return { name: deps.nuxt ? "nuxt" : "vue", entry: exists("app.vue") ? "app.vue" : "src/App.vue" };
+  }
+  if (deps.svelte || deps["@sveltejs/kit"]) {
+    return { name: "svelte", entry: exists("src/App.svelte") ? "src/App.svelte" : "src/routes/+page.svelte" };
+  }
+  if (deps.next) {
+    return {
+      name: "next",
+      entry: exists("app/page.tsx") ? "app/page.tsx" : "pages/index.tsx",
+    };
+  }
+  if (deps.preact) {
+    return { name: "preact", entry: exists("src/app.tsx") ? "src/app.tsx" : "src/App.tsx" };
+  }
+  if (deps.vite || deps.react) {
+    return { name: deps.react ? "react" : "vite", entry: "src/App.tsx" };
+  }
+  // Generic: first matching entry among known patterns
+  const candidates = [
+    "src/App.tsx",
+    "src/App.jsx",
+    "src/App.vue",
+    "src/App.svelte",
+    "app.vue",
+    "index.html",
+  ];
+  for (const c of candidates) {
+    if (exists(c)) return { name: "generic", entry: c };
+  }
+  return { name: "unknown", entry: "src/App.tsx" };
+}
+
+function handleCreateCommand() {
+  const name = args[1];
+  if (!name || name.startsWith("-")) {
+    console.error("Usage: aether create <app-name>");
+    process.exit(1);
+  }
+  const target = path.isAbsolute(name) ? name : path.resolve(process.cwd(), name);
+  if (fs.existsSync(target) && fs.readdirSync(target).length > 0) {
+    console.error("create: directory not empty:", target);
+    process.exit(1);
+  }
+  fs.mkdirSync(path.join(target, "src"), { recursive: true });
+  fs.mkdirSync(path.join(target, "public"), { recursive: true });
+
+  const frameworkRoot = FRAMEWORK_ROOT;
+  const cliEntry = path
+    .relative(target, path.join(frameworkRoot, "packages/aether_cli/src/index.ts"))
+    .replace(/\\/g, "/");
+  const runtimeDist = path
+    .relative(target, path.join(frameworkRoot, "packages/aether_runtime/dist"))
+    .replace(/\\/g, "/");
+
+  fs.writeFileSync(
+    path.join(target, "package.json"),
+    JSON.stringify(
+      {
+        name: path.basename(target),
+        private: true,
+        type: "module",
+        scripts: {
+          dev: `node --experimental-strip-types "${cliEntry}"`,
+          build: `node --experimental-strip-types "${cliEntry}" build`,
+          migrate: `node --experimental-strip-types "${cliEntry}" migrate`,
+        },
+        aether: {
+          framework: frameworkRoot.replace(/\\/g, "/"),
+          runtimeDist,
+        },
+      },
+      null,
+      2
+    ) + "\n"
+  );
+
+  fs.writeFileSync(
+    path.join(target, "aether.config.json"),
+    JSON.stringify(
+      {
+        root: ".",
+        entry: "src/App.tsx",
+        state: "src/state.ts",
+        bindings: "aether.bindings.json",
+        componentsDir: "src",
+        outDir: "dist",
+        watch: ["src"],
+        wasmgc: true,
+        server: { port: 5173, host: "0.0.0.0" },
+        site: { landing: "public/index.html", publicDir: "public" },
+        routes: {
+          "/": { type: "static", file: "public/index.html" },
+          "/app": { type: "app" },
+          "/demo": { type: "app" },
+        },
+        effects: {
+          "db.get": { type: "add", arg: 42 },
+        },
+      },
+      null,
+      2
+    ) + "\n"
+  );
+
+  fs.writeFileSync(
+    path.join(target, "aether.bindings.json"),
+    JSON.stringify(
+      {
+        derived: [{ target: "doubled", from: "count", op: "mul", arg: 2 }],
+        handlers: {
+          inc_count: { op: "inc", slot: "count" },
+          dec_count: { op: "inc", slot: "count", delta: -1 },
+          server_inc_count: { op: "inc", slot: "count", server: true },
+          load_remote: { op: "perform", effect: "db.get", into: "remote" },
+        },
+      },
+      null,
+      2
+    ) + "\n"
+  );
+
+  fs.writeFileSync(
+    path.join(target, "src/state.ts"),
+    `export const initialState = {
+  count: 0,
+  doubled: 0,
+  remote: 0,
+};
+`
+  );
+
+  fs.writeFileSync(
+    path.join(target, "src/App.tsx"),
+    `export default function App() {
+  return (
+    <div className="app">
+      <h1>{count}</h1>
+      <p>doubled: {doubled}</p>
+      <p>remote: {remote}</p>
+      <button onClick={inc_count}>+</button>
+      <button onClick={dec_count}>-</button>
+      <button onClick={server_inc_count}>+ server</button>
+      <button onClick={load_remote}>effect db.get</button>
+      <p>
+        <a href="/">← docs</a>
+      </p>
+    </div>
+  );
+}
+`
+  );
+
+  fs.writeFileSync(
+    path.join(target, "public/index.html"),
+    `<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${path.basename(target)} — Aether</title>
+  <style>
+    :root { --bg:#0a0c10; --ink:#eef2f7; --muted:#8b95a8; --accent:#5eead4; --line:#1e2430; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      min-height: 100vh; font-family: ui-sans-serif, system-ui, sans-serif;
+      color: var(--ink);
+      background: radial-gradient(800px 400px at 80% -10%, #134e4a55, transparent), var(--bg);
+      display: grid; place-items: center; padding: 2rem;
+    }
+    main { max-width: 36rem; }
+    h1 { font-size: 2.5rem; letter-spacing: -0.04em; margin-bottom: 0.75rem; }
+    p { color: var(--muted); margin-bottom: 1.25rem; line-height: 1.5; }
+    a {
+      display: inline-flex; padding: 0.7rem 1.1rem; background: var(--accent);
+      color: #042f2e; text-decoration: none; font-weight: 700; border-radius: 0.4rem;
+    }
+    code { color: #fbbf24; font-family: ui-monospace, monospace; font-size: 0.9em; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>${path.basename(target)}</h1>
+    <p>
+      Приложение на <strong>Aether</strong>. Документация проекта здесь,
+      UI — в playground.
+    </p>
+    <p>Пайплайн: <code>edit src/</code> → HMR compile → Wasm snapshot → DOM patch → DSM.</p>
+    <a href="/app">Open app →</a>
+  </main>
+</body>
+</html>
+`
+  );
+
+  fs.writeFileSync(
+    path.join(target, "README.md"),
+    `# ${path.basename(target)}
+
+Aether app — developer pipeline:
+
+\`\`\`bash
+# 1. framework once
+cd ${frameworkRoot.replace(/\\/g, "/")}
+cargo build -p aether_compiler
+npm run build -w aether_runtime
+
+# 2. this app
+cd ${target.replace(/\\/g, "/")}
+npm run dev
+\`\`\`
+
+| URL | |
+|-----|--|
+| http://localhost:5173 | docs / landing |
+| http://localhost:5173/app | live app |
+
+Edit \`src/App.tsx\`, \`src/state.ts\`, \`aether.bindings.json\`.
+`
+  );
+
+  console.log(`[Aether] created ${target}`);
+  console.log(`  cd ${path.basename(target)}`);
+  console.log(`  npm run dev`);
+  console.log(`  → http://localhost:5173`);
+  process.exit(0);
+}
+
+function main() {
+  if (COMMAND === "create") return handleCreateCommand();
+  if (COMMAND === "migrate") return handleMigrateCommand();
+  if (COMMAND === "build") return runCompilation(() => writeProductionBundle());
+  if (COMMAND === "deploy") {
+    return runCompilation(() => {
+      writeProductionBundle();
+      const dist = path.resolve(PROJECT_ROOT, "dist_production");
+      fs.writeFileSync(
+        path.join(dist, "aether.cloud.json"),
+        JSON.stringify({ builtAt: new Date().toISOString(), files: fs.readdirSync(dist) }, null, 2)
+      );
+      console.log("[Aether] deploy manifest written");
+    });
+  }
+  // start | dev | default
+  runCompilation(() => startDevServer());
+}
+
+main();

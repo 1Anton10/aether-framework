@@ -1,0 +1,12 @@
+{
+  "name": "aether-compat-react",
+  "version": "0.1.0",
+  "description": "React/ReactDOM API shim for Aether Bridge",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./index.js": "./index.js",
+    "./client": "./dom.js",
+    "./jsx-runtime": "./jsx-runtime.js"
+  }
+}

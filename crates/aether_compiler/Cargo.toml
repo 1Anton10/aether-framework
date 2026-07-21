@@ -1,0 +1,17 @@
+[package]
+name = "aether_compiler"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+aether_ir = { path = "../aether_ir" }
+swc_common = "0.33.25"
+swc_ecma_parser = "0.141.34"
+swc_ecma_ast = "0.110.15"
+serde_json = "1.0"
+# Добавляем генератор байт-кода Wasm
+wasm-encoder = "0.202.0"
+
+[[bin]]
+name = "aether-compile"
+path = "src/main.rs"

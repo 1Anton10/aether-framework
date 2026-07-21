@@ -1,0 +1,51 @@
+# Dependencies & build
+node_modules/
+target/
+dist/
+dist_*/
+dist_production/
+*.tsbuildinfo
+
+# Wasm / local compile artifacts at repo root
+/app.wasm
+/app.gc.wasm
+/aether.program.json
+
+# App local outputs (examples may keep committed fixtures — ignore generated)
+examples/**/dist/
+**/dist/
+
+# Logs & OS
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+AETHER_TLS_*
+
+# Editors
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.example
+*.swp
+*.swo
+
+# Test / coverage
+coverage/
+.nyc_output/
+
+# Cargo
+Cargo.lock.bak
+
+# Local scratch
+tmp/
+.tmp/
+*.local

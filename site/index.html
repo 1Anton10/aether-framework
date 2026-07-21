@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Aether — The Wasm UI Framework</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <nav class="nav">
+    <div class="wrap nav-inner">
+      <a class="logo" href="/">Aether</a>
+      <div class="nav-links">
+        <a href="/guide.html">Guide</a>
+        <a href="/api.html">API</a>
+        <a href="/demo">Playground</a>
+      </div>
+    </div>
+  </nav>
+
+  <header class="hero">
+    <div class="wrap hero-grid">
+      <div class="hero-copy">
+        <p class="eyebrow">Frontend framework</p>
+        <h1>Aether</h1>
+        <p class="tagline">Compile UI to Wasm. Resume from memory. Patch the DOM. Sync over binary DSM.</p>
+        <p class="lead">
+          Один пайплайн для JSX, Vue, Svelte, Angular, Solid, Qwik, Lit и HTML.
+          Состояние живёт в Wasm-памяти — без Virtual DOM и без JSON-RPC.
+        </p>
+        <div class="cta">
+          <a class="btn primary" href="#get-started">Get Started</a>
+          <a class="btn" href="/demo">Open Playground</a>
+        </div>
+      </div>
+      <aside class="hero-panel" aria-label="Install">
+        <div class="panel-bar">
+          <span></span><span></span><span></span>
+          <em>terminal</em>
+        </div>
+        <pre class="panel-code"><code><span class="cmt"># создать приложение</span>
+npm create aether@latest my-app
+cd my-app
+npm run dev
+
+<span class="cmt"># или из monorepo</span>
+node path/to/aether_cli create my-app</code></pre>
+      </aside>
+    </div>
+  </header>
+
+  <section id="get-started" class="section">
+    <div class="wrap">
+      <h2>Get Started</h2>
+      <p class="sub">Как у Vite / Nuxt: создал проект → <code>npm run dev</code> → открыл браузер.</p>
+      <ol class="steps">
+        <li>
+          <strong>Создайте проект</strong>
+          <pre><code>node &lt;aether-framework&gt;/packages/aether_cli/src/index.ts create my-app
+cd my-app</code></pre>
+        </li>
+        <li>
+          <strong>Соберите компилятор (один раз в framework)</strong>
+          <pre><code>cd &lt;aether-framework&gt;
+cargo build -p aether_compiler
+npm run build -w aether_runtime</code></pre>
+        </li>
+        <li>
+          <strong>Запустите dev-сервер</strong>
+          <pre><code>npm run dev
+# → http://localhost:5173</code></pre>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="section alt">
+    <div class="wrap">
+      <h2>Что внутри</h2>
+      <p class="sub">Полный цикл: compile → resume → patch → sync.</p>
+      <div class="grid">
+        <article class="card">
+          <h3>Wasm memory</h3>
+          <p>Linear + WasmGC heap. Snapshot в HTML, cold start без гидратации.</p>
+        </article>
+        <article class="card">
+          <h3>Incremental DAG</h3>
+          <p>Dirty-queue и derived-слоты. Патчится только то, что изменилось.</p>
+        </article>
+        <article class="card">
+          <h3>Binary DSM</h3>
+          <p>WebTransport / WebSocket / HTTP. Один бинарный кодек дельт.</p>
+        </article>
+        <article class="card">
+          <h3>Effects</h3>
+          <p>Algebraic perform → server handler → resume в слот.</p>
+        </article>
+        <article class="card">
+          <h3>Any frontend</h3>
+          <p>JSX · Vue · Svelte · Angular · Solid · Qwik · Lit · HTML → один IR.</p>
+        </article>
+        <article class="card">
+          <h3>Migrate</h3>
+          <p><code>aether migrate</code> подхватывает Vite, Next, Nuxt, Angular и ставит aliases.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap">
+      <h2>Структура проекта</h2>
+      <p class="sub">Минимальный скелет — как create-vue / create-nuxt.</p>
+      <pre class="tree"><code>my-app/
+├── aether.config.json
+├── aether.bindings.json
+├── package.json
+├── src/
+│   ├── App.tsx
+│   └── state.ts
+└── public/
+    └── index.html   <span class="cmt"># опциональный лендинг</span></code></pre>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="wrap footer-inner">
+      <span>Aether Framework</span>
+      <div class="nav-links">
+        <a href="/guide.html">Guide</a>
+        <a href="/api.html">API</a>
+        <a href="/demo">Playground</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,34 @@
+{
+  "name": "aether-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Aether — Wasm UI framework (IR → memory → DOM → binary DSM)",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build:compiler": "cargo build -p aether_compiler",
+    "build:runtime": "npm run build -w aether_runtime",
+    "build:all": "npm run build:compiler && npm run build:runtime",
+    "dev": "npm run start -w aether_cli",
+    "start": "npm run start -w aether_cli",
+    "create": "node --experimental-strip-types packages/aether_cli/src/index.ts create",
+    "build": "npm run start -w aether_cli -- build",
+    "deploy": "npm run start -w aether_cli -- deploy",
+    "migrate": "npm run start -w aether_cli -- migrate",
+    "test:ir": "cargo test -p aether_ir",
+    "test:compiler": "cargo test -p aether_compiler",
+    "smoke": "node --experimental-strip-types scripts/smoke.mjs",
+    "test": "npm run test:ir && npm run test:compiler && npm run smoke",
+    "bench": "node --experimental-strip-types packages/aether_bench/bench.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aether-js/aether-framework.git"
+  }
+}
+

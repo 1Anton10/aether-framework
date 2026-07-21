@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Guide — Aether</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <nav class="nav">
+    <div class="wrap nav-inner">
+      <a class="logo" href="/">Aether</a>
+      <div class="nav-links">
+        <a class="active" href="/guide.html">Guide</a>
+        <a href="/api.html">API</a>
+        <a href="/demo">Playground</a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="section doc">
+    <div class="wrap">
+      <h1 style="font-size:2rem;letter-spacing:-0.03em;margin-bottom:0.5rem">Guide</h1>
+      <p class="sub">Пайплайн разработчика от нуля до sync.</p>
+
+      <h2>1. Create</h2>
+      <p>Сгенерируйте приложение (как <code>npm create vue@latest</code> / <code>nuxi init</code>):</p>
+<pre><code>node packages/aether_cli/src/index.ts create my-app
+cd my-app
+npm run dev</code></pre>
+
+      <h2>2. Edit UI</h2>
+      <p>Пишите на любом поддерживаемом синтаксисе. Entry задаётся в <code>aether.config.json</code>.</p>
+<pre><code>export default function App() {
+  return (
+    &lt;div&gt;
+      &lt;h1&gt;{count}&lt;/h1&gt;
+      &lt;button onClick={inc_count}&gt;+&lt;/button&gt;
+    &lt;/div&gt;
+  );
+}</code></pre>
+
+      <h2>3. State &amp; bindings</h2>
+      <p><code>src/state.ts</code> — начальные значения. <code>aether.bindings.json</code> — derived и handlers.</p>
+<pre><code>{
+  "derived": [{ "target": "doubled", "from": "count", "op": "mul", "arg": 2 }],
+  "handlers": {
+    "inc_count": { "op": "inc", "slot": "count" }
+  }
+}</code></pre>
+
+      <h2>4. Dev server</h2>
+      <ul>
+        <li><code>/</code> — документация / лендинг проекта</li>
+        <li><code>/app</code> — скомпилированное приложение</li>
+        <li>HMR при изменении entry</li>
+        <li>DSM: <code>/aether-dsm</code>, <code>/api/delta</code></li>
+      </ul>
+
+      <h2>5. Migrate</h2>
+      <p>В существующем Vite / Next / Nuxt / Angular / Solid проекте:</p>
+<pre><code>node path/to/aether_cli create --migrate
+# или: npm run migrate  (из monorepo)</code></pre>
+
+      <h2>6. Build</h2>
+<pre><code>npm run build
+# → dist_production / outDir с app.wasm + runtime</code></pre>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap footer-inner">
+      <span>Aether Guide</span>
+      <a href="/">← Home</a>
+    </div>
+  </footer>
+</body>
+</html>

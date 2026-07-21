@@ -1,0 +1,10 @@
+{
+  "derived": [
+    { "target": "doubled", "from": "count", "op": "mul", "arg": 2 }
+  ],
+  "handlers": {
+    "inc_count": { "op": "inc", "slot": "count" },
+    "server_inc_count": { "op": "inc", "slot": "count", "server": true },
+    "load_remote": { "op": "perform", "effect": "db.get", "into": "remote" }
+  }
+}

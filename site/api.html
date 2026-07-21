@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>API — Aether</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <nav class="nav">
+    <div class="wrap nav-inner">
+      <a class="logo" href="/">Aether</a>
+      <div class="nav-links">
+        <a href="/guide.html">Guide</a>
+        <a class="active" href="/api.html">API</a>
+        <a href="/demo">Playground</a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="section doc">
+    <div class="wrap">
+      <h1 style="font-size:2rem;letter-spacing:-0.03em;margin-bottom:0.5rem">API</h1>
+      <p class="sub">Конфиг, CLI и runtime-поверхность.</p>
+
+      <h2>aether.config.json</h2>
+<pre><code>{
+  "entry": "src/App.tsx",
+  "state": "src/state.ts",
+  "bindings": "aether.bindings.json",
+  "outDir": "dist",
+  "wasmgc": true,
+  "server": { "port": 5173 },
+  "site": { "landing": "public/index.html", "publicDir": "public" },
+  "routes": {
+    "/": { "type": "static", "file": "public/index.html" },
+    "/app": { "type": "app" }
+  },
+  "effects": {
+    "db.get": { "type": "add", "arg": 100 }
+  }
+}</code></pre>
+
+      <h2>CLI</h2>
+      <ul>
+        <li><code>create &lt;name&gt;</code> — scaffold приложения</li>
+        <li><code>start</code> / <code>dev</code> — HMR + DSM</li>
+        <li><code>build</code> — production bundle</li>
+        <li><code>deploy</code> — bundle + cloud manifest</li>
+        <li><code>migrate</code> — импорт из чужого стека</li>
+      </ul>
+
+      <h2>Handlers (bindings)</h2>
+      <ul>
+        <li><code>inc_&lt;slot&gt;</code> / <code>{ "op": "inc", "slot" }</code></li>
+        <li><code>server_inc_&lt;slot&gt;</code> — mutate через DSM</li>
+        <li><code>perform_&lt;effect&gt;__into_&lt;slot&gt;</code> — algebraic effect</li>
+      </ul>
+
+      <h2>Runtime exports</h2>
+      <ul>
+        <li><code>aether_init</code> / <code>apply_delta</code> / <code>aether_resume</code></li>
+        <li><code>app.wasm</code> + <code>app.gc.wasm</code></li>
+        <li>snapshot: <code>&lt;script type="aether/snapshot"&gt;</code></li>
+      </ul>
+
+      <h2>Frontends</h2>
+      <p>Entry может быть <code>.tsx</code>, <code>.vue</code>, <code>.svelte</code>, <code>.html</code>, Angular template, Solid, Qwik, Lit.</p>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap footer-inner">
+      <span>Aether API</span>
+      <a href="/">← Home</a>
+    </div>
+  </footer>
+</body>
+</html>

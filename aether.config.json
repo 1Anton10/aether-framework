@@ -1,0 +1,26 @@
+{
+  "root": ".",
+  "entry": "examples/basic/src/App.tsx",
+  "state": "examples/basic/src/state.ts",
+  "bindings": "examples/basic/aether.bindings.json",
+  "componentsDir": "examples/basic/src",
+  "outDir": "dist",
+  "watch": ["examples/basic/src"],
+  "wasmgc": true,
+  "server": {
+    "port": 3000,
+    "host": "0.0.0.0"
+  },
+  "site": {
+    "landing": "site/index.html",
+    "publicDir": "site"
+  },
+  "routes": {
+    "/": { "type": "static", "file": "site/index.html" },
+    "/demo": { "type": "app" },
+    "/app": { "type": "app" }
+  },
+  "effects": {
+    "db.get": { "type": "add", "arg": 100 }
+  }
+}
