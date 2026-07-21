@@ -14,7 +14,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const REPO = process.env.AETHER_REPO_URL || "https://github.com/aether-js/aether-framework.git";
+const REPO = process.env.AETHER_REPO_URL || "https://github.com/1Anton10/aether-framework.git";
 
 function findFramework() {
   if (process.env.AETHER_HOME && fs.existsSync(process.env.AETHER_HOME)) {
@@ -68,7 +68,7 @@ if (!name) {
     npx create-aether my-app
     cd my-app && npm run dev
 
-  Docs for testers: https://github.com/aether-js/aether-framework/blob/main/docs/TRY.md
+  Docs for testers: https://github.com/1Anton10/aether-framework/blob/main/docs/TRY.md
 `);
   process.exit(1);
 }
