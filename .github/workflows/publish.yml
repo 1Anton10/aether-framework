@@ -32,13 +32,33 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
-          for pkg in aether-std aether_runtime aether_ssr aether_cli create-aether vite-plugin-aether aether-adapter aether-compat-react aether-compat-vue aether-compat-svelte aether-compat-solid aether-compat-qwik aether-compat-lit aether-compat-angular; do
-            ver=$(npm pkg get version -w "$pkg" | tr -d '"')
+          publish_one() {
+            local pkg="$1"
+            local ver attempt
+            ver=$(node -e "
+              const {execSync}=require('child_process');
+              const raw=execSync('npm pkg get version -w '+JSON.stringify(process.argv[1]),{encoding:'utf8'}).trim();
+              let v; try { v=JSON.parse(raw); } catch { v=raw.replace(/^\"|\"$/g,''); }
+              if (v && typeof v==='object') v=Object.values(v)[0];
+              process.stdout.write(String(v));
+            " "$pkg")
             if npm view "$pkg@$ver" version >/dev/null 2>&1; then
               echo "Skip $pkg@$ver (already on npm)"
-              continue
+              return 0
             fi
-            echo "Publishing $pkg@$ver…"
-            npm publish --workspace "$pkg" --access public --provenance || npm publish --workspace "$pkg" --access public
-            sleep 20
+            for attempt in 1 2 3 4 5 6; do
+              echo "Publishing $pkg@$ver (attempt $attempt)…"
+              if npm publish --workspace "$pkg" --access public --provenance \
+                || npm publish --workspace "$pkg" --access public; then
+                sleep 25
+                return 0
+              fi
+              echo "Publish failed for $pkg — waiting 90s (rate limit / transient)…"
+              sleep 90
+            done
+            echo "Giving up on $pkg"
+            return 1
+          }
+          for pkg in aether-std aether_runtime aether_ssr aether_cli create-aether vite-plugin-aether aether-adapter aether-compat-react aether-compat-vue aether-compat-svelte aether-compat-solid aether-compat-qwik aether-compat-lit aether-compat-angular; do
+            publish_one "$pkg"
           done
